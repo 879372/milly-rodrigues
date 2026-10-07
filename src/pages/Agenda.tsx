@@ -1,0 +1,3313 @@
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import { Calendar } from '@/components/ui/calendar';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { api } from '@/lib/api';
+import { User, Scissors, MoreVertical, Plus, Trash2, Loader2, DollarSign, Filter, RefreshCw, CalendarOff, ShoppingCart, Zap, Bell, Phone, CheckCheck, Calendar as CalendarIcon, MessageCircle } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuCheckboxItem,
+} from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from '@/components/ui/alert-dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from 'sonner';
+import { Search, Check } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { AgendaDateNavigator } from '@/components/agenda/AgendaDateNavigator';
+
+type Product = {
+  id: number;
+  name: string;
+  brand: string;
+  stock_quantity: number;
+  sale_price: string;
+};
+
+type Appointment = {
+  id: number;
+  client: number;
+  client_name: string;
+  client_phone?: string;
+  barber?: number | any;
+  barber_name: string;
+  services?: number[] | any[];
+  service_name: string;
+  date_time: string;
+  status: string;
+  total_price: string;
+  discount?: string;
+  tip?: string;
+  notes?: string;
+  payments?: { method: string; amount: string; payment_date?: string }[];
+  payment_status?: string;
+  payment_capture_method?: string;
+  payment_confirmed_at?: string;
+};
+
+type TimeBlock = {
+  id: number;
+  start_time: string;
+  end_time: string;
+  reason: string;
+  barber: number | any;
+  barber_name?: string;
+};
+
+type WaitlistEntry = {
+  id: number;
+  client: number;
+  client_name: string;
+  client_phone: string;
+  barber: number | null;
+  barber_name: string;
+  services: number[];
+  service_name: string;
+  preferred_date: string;
+  preferred_period: string;
+  preferred_period_display: string;
+  notes: string;
+  status: string;
+  status_display: string;
+  created_at: string;
+};
+
+const statusMap: Record<string, { label: string; color: string }> = {
+  pending: { label: 'Pendente', color: 'bg-yellow-500/10 text-yellow-500' },
+  confirmed: { label: 'Confirmado', color: 'bg-blue-500/10 text-blue-500' },
+  completed: { label: 'Concluído', color: 'bg-green-500/10 text-green-500' },
+  cancelled: { label: 'Cancelado', color: 'bg-red-500/10 text-red-500' },
+  no_show: { label: 'Faltou', color: 'bg-gray-500/10 text-gray-500' },
+};
+
+const waitlistFilters = [
+  { value: 'all', label: 'Todos' },
+  { value: 'waiting', label: 'Aguardando' },
+  { value: 'contacted', label: 'Contactados' },
+  { value: 'scheduled', label: 'Agendados' },
+  { value: 'cancelled', label: 'Cancelados' },
+] as const;
+
+const waitlistStatusStyles: Record<string, string> = {
+  waiting: 'border-amber-500/20 bg-amber-500/10 text-amber-700',
+  contacted: 'border-blue-500/20 bg-blue-500/10 text-blue-700',
+  scheduled: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700',
+  cancelled: 'border-red-500/20 bg-red-500/10 text-red-700',
+};
+
+const waitlistPeriodLabels: Record<string, string> = {
+  morning: 'Manhã',
+  afternoon: 'Tarde',
+  any: 'Qualquer horário',
+};
+
+const formatCurrency = (value: number | string) =>
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
+    typeof value === 'string' ? parseFloat(value) : value
+  );
+
+const maskDate = (v: string) => {
+  v = v.replace(/\D/g, "");
+  if (v.length > 8) v = v.slice(0, 8);
+  if (v.length > 2) v = v.replace(/^(\d{2})(\d)/g, "$1/$2");
+  if (v.length > 5) v = v.replace(/^(\d{2})\/(\d{2})(\d)/g, "$1/$2/$3");
+  return v;
+};
+
+const maskTime = (v: string) => {
+  v = v.replace(/\D/g, "");
+  if (v.length > 4) v = v.slice(0, 4);
+  if (v.length > 2) v = v.replace(/^(\d{2})(\d)/g, "$1:$2");
+  return v;
+};
+
+const dateToBackend = (dateStr: string) => {
+  if (!dateStr || !dateStr.includes('/')) return dateStr || null;
+  const [day, month, year] = dateStr.split('/');
+  if (!day || !month || !year || year.length < 4) return dateStr || null;
+  return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+};
+
+const maskPhone = (v: string) => {
+  v = v.replace(/\D/g, "");
+  if (v.length > 11) v = v.slice(0, 11);
+  v = v.replace(/^(\d{2})(\d)/g, "($1) $2");
+  v = v.replace(/(\d)(\d{4})$/, "$1-$2");
+  return v;
+};
+
+const maskCurrency = (v: string) => {
+  v = v.replace(/\D/g, "");
+  if (!v) return "0,00";
+  const val = parseInt(v) / 100;
+  return val.toFixed(2).replace('.', ',');
+};
+
+const unmaskCurrency = (v: string) => {
+  return v.replace(',', '.');
+};
+
+
+
+export default function Agenda() {
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [statusFilter, setStatusFilter] = useState<string[]>(['confirmed', 'completed']);
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [showNewAppointmentModal, setShowNewAppointmentModal] = useState(false);
+  const [showQuickCreateClient, setShowQuickCreateClient] = useState(false);
+  const [activeAppointment, setActiveAppointment] = useState<Appointment | null>(null);
+  const [payments, setPayments] = useState<{ method: string; amount: string; payment_date?: string }[]>([]);
+  const [selectedProducts, setSelectedProducts] = useState<{ id: number; name: string; quantity: number; unit_price: string }[]>([]);
+  const [productSearch, setProductSearch] = useState('');
+
+  // New States for Flow
+  const [showSaleQuestion, setShowSaleQuestion] = useState(false);
+  const [showProductSaleModal, setShowProductSaleModal] = useState(false);
+  const [salePayments, setSalePayments] = useState<{ method: string; amount: string; payment_date?: string }[]>([]);
+  const [saleDiscount, setSaleDiscount] = useState<string>('0,00');
+  const [isEditingSale, setIsEditingSale] = useState(false);
+  const [hasAssociatedSale, setHasAssociatedSale] = useState(false);
+  const [cachedAssociatedSale, setCachedAssociatedSale] = useState<any>(null);
+  const [isFetchingAssociatedSale, setIsFetchingAssociatedSale] = useState(false);
+
+  // Walk-In State
+  const [showWalkInModal, setShowWalkInModal] = useState(false);
+  const [walkInClient, setWalkInClient] = useState<any>(null);
+  const [isWalkInClientPopoverOpen, setIsWalkInClientPopoverOpen] = useState(false);
+  const [isWalkInServicePopoverOpen, setIsWalkInServicePopoverOpen] = useState(false);
+  const [walkInServices, setWalkInServices] = useState<any[]>([]);
+  const [walkInBarber, setWalkInBarber] = useState<any>(null);
+  const [walkInTime, setWalkInTime] = useState<string>('');
+  const [pendingWaitlistEntryId, setPendingWaitlistEntryId] = useState<number | null>(null);
+
+  // Timeline State
+  const [timelineBarberId, setTimelineBarberId] = useState<string | null>(null);
+
+  // New Appointment Form State
+  const [newAppClient, setNewAppClient] = useState<any>(null);
+  const [clientSearch, setClientSearch] = useState('');
+  const [isClientPopoverOpen, setIsClientPopoverOpen] = useState(false);
+  const [isServicePopoverOpen, setIsServicePopoverOpen] = useState(false);
+  const [newAppServices, setNewAppServices] = useState<any[]>([]);
+  const [newAppBarber, setNewAppBarber] = useState<any>(null);
+  const [newAppTime, setNewAppTime] = useState<string>('');
+  const [newAppNotes, setNewAppNotes] = useState<string>('');
+
+  // Recurrence State
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurrenceType, setRecurrenceType] = useState('weekly');
+  const [recurrenceCount, setRecurrenceCount] = useState(4);
+
+  // Quick Create Client State
+  const [quickClient, setQuickClient] = useState({
+    name: '',
+    phone: '',
+    birth_date: ''
+  });
+
+  // Time Block State
+  const [showBlockModal, setShowBlockModal] = useState(false);
+  const [blockBarber, setBlockBarber] = useState<any>(null);
+  const [blockReason, setBlockReason] = useState('');
+
+  // Edit Appointment State
+  const [showEditAppointmentModal, setShowEditAppointmentModal] = useState(false);
+  const [editingAppointment, setEditingAppointment] = useState<any>(null);
+  const [editServices, setEditServices] = useState<any[]>([]);
+  const [isEditServicePopoverOpen, setIsEditServicePopoverOpen] = useState(false);
+  const [editPayments, setEditPayments] = useState<{ method: string; amount: string; payment_date?: string }[]>([]);
+  const [editDiscount, setEditDiscount] = useState<string>('');
+  const [editTip, setEditTip] = useState<string>('');
+  const [isFetchingEditData, setIsFetchingEditData] = useState(false);
+  const [isFetchingAppData, setIsFetchingAppData] = useState(false);
+  const [completeDiscount, setCompleteDiscount] = useState<string>('0,00');
+  const [completeTip, setCompleteTip] = useState<string>('0,00');
+
+  // Fiado confirmation states
+  const [showFiadoConfirm, setShowFiadoConfirm] = useState(false);
+  const [showSaleFiadoConfirm, setShowSaleFiadoConfirm] = useState(false);
+
+  // Cancel/No-show confirmation states (replacing native confirm())
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showNoShowConfirm, setShowNoShowConfirm] = useState(false);
+  const [showCancelCompletedConfirm, setShowCancelCompletedConfirm] = useState(false);
+  const [showRemoveBlockConfirm, setShowRemoveBlockConfirm] = useState(false);
+  const [blockToRemove, setBlockToRemove] = useState<number | null>(null);
+
+  // Agenda View Tab
+  const [agendaView, setAgendaView] = useState<'timeline' | 'waitlist'>('timeline');
+  const [waitlistStatusFilter, setWaitlistStatusFilter] = useState<string>('waiting');
+
+  const queryClient = useQueryClient();
+
+  const { data: customMethods } = useQuery({
+    queryKey: ['payment-methods'],
+    queryFn: async () => (await api.get<any[]>('/payment-methods/')).data
+  });
+
+  const { data: appointments, isLoading } = useQuery({
+    queryKey: ['appointments', format(selectedDate, 'yyyy-MM-dd'), statusFilter],
+    queryFn: async () => {
+      const statusParam = statusFilter.join(',');
+      const res = await api.get<Appointment[]>(`/appointments/?date_time__date=${format(selectedDate, 'yyyy-MM-dd')}&status__in=${statusParam}`);
+      return res.data.sort((a, b) => a.date_time.localeCompare(b.date_time));
+    },
+    refetchInterval: 300000, // 5 minutes
+  });
+
+  const { data: products } = useQuery({
+    queryKey: ['products'],
+    queryFn: async () => (await api.get<Product[]>('/products/')).data
+  });
+
+  const { data: clients } = useQuery({
+    queryKey: ['clients'],
+    queryFn: async () => (await api.get<any[]>('/users/?role=client')).data,
+    enabled: showNewAppointmentModal || showWalkInModal
+  });
+
+  const { data: services } = useQuery({
+    queryKey: ['services'],
+    queryFn: async () => (await api.get<any[]>('/services/')).data,
+  });
+
+  const { data: barbers } = useQuery({
+    queryKey: ['barbers'],
+    queryFn: async () => (await api.get<any[]>('/users/?role=barber')).data,
+  });
+
+  const { data: me } = useQuery({
+    queryKey: ['me'],
+    queryFn: async () => (await api.get('/users/me/')).data
+  });
+
+  useEffect(() => {
+    if (me && !timelineBarberId) {
+      if (me.role === 'barber') {
+        setTimelineBarberId(me.id.toString());
+      } else if (barbers && barbers.length > 0) {
+        setTimelineBarberId(barbers[0].id.toString());
+      }
+    }
+  }, [me, barbers, timelineBarberId]);
+
+  const { data: workingHours } = useQuery({
+    queryKey: ['working-hours'],
+    queryFn: async () => (await api.get<any[]>('/working-hours/')).data,
+  });
+
+  const { data: waitlistEntries, isLoading: isLoadingWaitlist } = useQuery({
+    queryKey: ['waitlist', waitlistStatusFilter, me?.id, me?.role],
+    queryFn: async () => {
+      let url = '/waitlist/?ordering=-created_at';
+      if (waitlistStatusFilter !== 'all') url += `&status=${waitlistStatusFilter}`;
+      if (me?.role === 'barber') url += `&barber=${me.id}`;
+      const res = await api.get<WaitlistEntry[]>(url);
+      return res.data;
+    },
+    enabled: !!me,
+  });
+
+  const waitingCount = waitlistEntries?.filter(e => e.status === 'waiting').length || 0;
+
+  const { data: timeBlocks, isLoading: isLoadingBlocks } = useQuery({
+    queryKey: ['time-blocks', format(selectedDate, 'yyyy-MM-dd')],
+    queryFn: async () => {
+      const res = await api.get<TimeBlock[]>(`/time-blocks/?start_time__date=${format(selectedDate, 'yyyy-MM-dd')}`);
+      return res.data;
+    }
+  });
+
+  const { data: availableTimes, isLoading: isLoadingTimes } = useQuery({
+    queryKey: ['available-times', newAppBarber?.id, selectedDate, newAppServices.map(s => s.id).join(',')],
+    queryFn: async () => {
+      if (!newAppBarber || !selectedDate || newAppServices.length === 0) return [];
+      const dateStr = format(selectedDate, 'yyyy-MM-dd');
+      const res = await api.get<string[]>(`/users/${newAppBarber.id}/available_times/?date=${dateStr}&services_ids=${newAppServices.map(s => s.id).join(',')}`);
+      return res.data;
+    },
+    enabled: !!newAppBarber && !!selectedDate && newAppServices.length > 0 && showNewAppointmentModal,
+  });
+
+  const checkDatesAvailability = async (dates: Date[]) => {
+    if (!newAppBarber || newAppServices.length === 0 || !newAppTime || dates.length === 0) return;
+
+    try {
+      const dateStrings = dates.map(d => format(d, 'yyyy-MM-dd'));
+      const res = await api.post('/appointments/check_availability/', {
+        barber_id: newAppBarber.id,
+        services_ids: newAppServices.map(s => s.id),
+        time: newAppTime,
+        dates: dateStrings
+      });
+
+      const unavailable = res.data
+        .filter((r: any) => !r.available)
+        .map((r: any) => r.date);
+
+      setUnavailableDates(unavailable);
+    } catch (error) {
+      console.error("Erro ao verificar disponibilidade das datas", error);
+    }
+  };
+
+  const [customDates, setCustomDates] = useState<Date[]>([]);
+  const [unavailableDates, setUnavailableDates] = useState<string[]>([]);
+
+  const getRecurrenceDates = () => {
+    if (!selectedDate || !newAppTime) return [];
+
+    if (recurrenceType === 'custom') {
+      return customDates.map(d => {
+        const [hours, minutes] = newAppTime.split(':');
+        const dateTime = new Date(d);
+        dateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+        return dateTime;
+      });
+    }
+
+    const [hours, minutes] = newAppTime.split(':');
+    const dates = [];
+    const baseDate = new Date(selectedDate);
+    baseDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+
+    for (let i = 0; i < recurrenceCount; i++) {
+      const d = new Date(baseDate);
+      if (recurrenceType === 'weekly') {
+        d.setDate(d.getDate() + (i * 7));
+      } else if (recurrenceType === 'biweekly') {
+        d.setDate(d.getDate() + (i * 14));
+      } else if (recurrenceType === 'triweekly') {
+        d.setDate(d.getDate() + (i * 21));
+      } else if (recurrenceType === 'quadweekly') {
+        d.setDate(d.getDate() + (i * 28));
+      } else if (recurrenceType === 'monthly') {
+        d.setMonth(d.getMonth() + i);
+      } else if (recurrenceType === 'daily') {
+        d.setDate(d.getDate() + i);
+      }
+      dates.push(d);
+    }
+    return dates;
+  };
+
+  const createAppointmentMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedDate || !newAppTime || newAppServices.length === 0 || !newAppClient || !newAppBarber) return;
+
+      const datesToCreate = isRecurring ? getRecurrenceDates() : [
+        (() => {
+          const [hours, minutes] = newAppTime.split(':');
+          const dateTime = new Date(selectedDate);
+          dateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+          return dateTime;
+        })()
+      ];
+
+      const promises = datesToCreate.map((dateTime, index) => {
+        let recurrenceNote = '';
+        if (isRecurring) {
+          const typeMap: Record<string, string> = {
+            'daily': 'Diária',
+            'weekly': 'Semanal',
+            'biweekly': 'A cada 2 semanas',
+            'triweekly': 'A cada 3 semanas',
+            'quadweekly': 'A cada 4 semanas',
+            'monthly': 'Mensal',
+            'custom': 'Datas Selecionadas'
+          };
+          recurrenceNote = ` (Recorrente ${typeMap[recurrenceType] || ''})`;
+        }
+
+        return api.post('/appointments/', {
+          client: newAppClient.id,
+          services: newAppServices.map(s => s.id),
+          barber: newAppBarber.id,
+          date_time: dateTime.toISOString(),
+          notes: (newAppNotes ? newAppNotes + recurrenceNote : recurrenceNote.trim()),
+          status: 'confirmed',
+          total_price: newAppServices.reduce((a,b) => a + Number(b.price), 0),
+          skip_notification: index > 0
+        });
+      });
+
+      return Promise.all(promises);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      setShowNewAppointmentModal(false);
+      resetNewAppForm();
+      toast.success(isRecurring ? 'Agendamentos recorrentes criados com sucesso!' : 'Agendamento criado com sucesso!');
+    },
+    onError: () => toast.error('Erro ao criar agendamento(s). Verifique a disponibilidade.'),
+  });
+
+  const updateWaitlistMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: number; status: string }) =>
+      api.patch(`/waitlist/${id}/`, { status }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['waitlist'] });
+      toast.success('Fila atualizada com sucesso!');
+    },
+    onError: () => toast.error('Erro ao atualizar fila.'),
+  });
+
+  const deleteWaitlistMutation = useMutation({
+    mutationFn: async (id: number) => api.delete(`/waitlist/${id}/`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['waitlist'] });
+      toast.success('Entrada removida da fila.');
+    },
+    onError: () => toast.error('Erro ao remover da fila.'),
+  });
+
+  const handleConvertToAppointment = (entry: WaitlistEntry) => {
+    // Pre-fill the walk-in modal with waitlist data
+    const client = clients?.find((c: any) => c.id === entry.client) || {
+      id: entry.client,
+      first_name: entry.client_name,
+      phone: entry.client_phone
+    };
+    setWalkInClient(client);
+
+    const srv = services?.filter((s: any) => entry.services?.includes(s.id)) || [];
+    if (srv.length > 0) setWalkInServices(srv);
+
+    const barber = barbers?.find((b: any) => b.id === entry.barber);
+    if (barber) setWalkInBarber(barber);
+
+    // Navigate calendar to preferred date
+    const prefDate = new Date(entry.preferred_date + 'T12:00:00');
+    setSelectedDate(prefDate);
+
+    setWalkInTime('');
+    setAgendaView('timeline');
+    setShowWalkInModal(true);
+
+    // Store ID to mark as scheduled later when user saves
+    setPendingWaitlistEntryId(entry.id);
+  };
+
+
+  const createClientMutation = useMutation({
+    mutationFn: async (data: typeof quickClient) => {
+      return api.post('/users/register_client/', {
+        ...data,
+        birth_date: dateToBackend(data.birth_date)
+      });
+    },
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      setNewAppClient(res.data);
+      setShowQuickCreateClient(false);
+      setQuickClient({ name: '', phone: '', birth_date: '' });
+      toast.success('Cliente cadastrado e selecionado!');
+    },
+    onError: () => toast.error('Erro ao cadastrar cliente.'),
+  });
+
+  const resetNewAppForm = () => {
+    setNewAppClient(null);
+    setClientSearch('');
+    setNewAppServices([]);
+    setNewAppBarber(null);
+    setNewAppTime('');
+    setNewAppNotes('');
+    setIsRecurring(false);
+    setRecurrenceType('weekly');
+    setRecurrenceCount(4);
+    setCustomDates([]);
+  };
+
+  const createBlockMutation = useMutation({
+    mutationFn: async (startTimeStr: string) => {
+      const dateStr = format(selectedDate, 'yyyy-MM-dd');
+      const barberToBlock = me?.role === 'admin' ? blockBarber : me;
+
+      if (!barberToBlock) return;
+
+      // Default block duration: 30 minutes
+      const start = new Date(`${dateStr}T${startTimeStr}:00`);
+      const end = new Date(start.getTime() + 30 * 60000);
+
+      return api.post('/time-blocks/', {
+        barber: barberToBlock.id,
+        start_time: `${dateStr}T${startTimeStr}:00`,
+        end_time: `${dateStr}T${format(end, 'HH:mm')}:00`,
+        reason: blockReason || 'Bloqueio de Agenda'
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['time-blocks'] });
+      queryClient.invalidateQueries({ queryKey: ['available-times'] });
+      toast.success('Horário bloqueado com sucesso!');
+    },
+    onError: () => toast.error('Erro ao bloquear horário.')
+  });
+
+  const deleteBlockMutation = useMutation({
+    mutationFn: async (id: number) => api.delete(`/time-blocks/${id}/`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['time-blocks'] });
+      toast.success('Bloqueio removido com sucesso!');
+    },
+    onError: () => toast.error('Erro ao remover bloqueio.')
+  });
+
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: number; status: string }) => {
+      return api.patch(`/appointments/${id}/`, { status });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      queryClient.invalidateQueries({ queryKey: ['available-times'] });
+      toast.success('Status atualizado com sucesso!');
+    },
+    onError: () => toast.error('Erro ao atualizar status.'),
+  });
+
+  const updateAppointmentMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      return api.patch(`/appointments/${id}/`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      setShowEditAppointmentModal(false);
+      setEditingAppointment(null);
+      toast.success('Agendamento atualizado com sucesso!');
+    },
+    onError: () => toast.error('Erro ao atualizar agendamento.'),
+  });
+
+  const cancelCompletedMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return api.post(`/appointments/${id}/cancel_completed/`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      queryClient.invalidateQueries({ queryKey: ['available-times'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['debts'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      setShowEditAppointmentModal(false);
+      setEditingAppointment(null);
+      setShowCancelCompletedConfirm(false);
+      toast.success('Agendamento cancelado. Todos os pagamentos e vendas associadas foram revertidos.');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.error || 'Erro ao cancelar agendamento concluído.'),
+  });
+
+  const cancelRecurringMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return api.post(`/appointments/${id}/cancel_recurring/`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      queryClient.invalidateQueries({ queryKey: ['available-times'] });
+      setShowEditAppointmentModal(false);
+      setEditingAppointment(null);
+      setShowCancelConfirm(false);
+      toast.success('Agendamentos recorrentes cancelados com sucesso.');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.error || 'Erro ao cancelar agendamentos recorrentes.'),
+  });
+
+  const handleEditAppointment = async (appId: number) => {
+    setShowEditAppointmentModal(true);
+    setIsFetchingEditData(true);
+    try {
+      const res = await api.get<Appointment>(`/appointments/${appId}/`);
+      const app = res.data;
+
+      setEditingAppointment(app);
+      const srv = services?.filter((s: any) => app.services?.includes(s.id)) || [];
+      setEditServices(srv || []);
+
+      if (app.status === 'completed') {
+        setEditPayments(app.payments?.map((p: any) => ({ method: p.method, amount: String(p.amount).replace('.', ','), payment_date: p.payment_date || format(new Date(), 'yyyy-MM-dd') })) || [{ method: 'pix', amount: String(app.total_price).replace('.', ','), payment_date: format(new Date(), 'yyyy-MM-dd') }]);
+        setEditDiscount(app.discount?.replace('.', ',') || '0,00');
+        setEditTip(app.tip?.replace('.', ',') || '0,00');
+
+        setIsFetchingAssociatedSale(true);
+        try {
+          const saleRes = await api.get(`/appointments/${appId}/sale/`);
+          setHasAssociatedSale(true);
+          setCachedAssociatedSale(saleRes.data);
+        } catch {
+          setHasAssociatedSale(false);
+          setCachedAssociatedSale(null);
+        } finally {
+          setIsFetchingAssociatedSale(false);
+        }
+      } else {
+        setEditPayments([]);
+        setEditDiscount('0,00');
+        setEditTip('0,00');
+        setHasAssociatedSale(false);
+        setCachedAssociatedSale(null);
+        setIsFetchingAssociatedSale(false);
+        setIsEditingSale(false);
+      }
+    } catch (err) {
+      toast.error('Erro ao buscar dados do agendamento.');
+      setShowEditAppointmentModal(false);
+    } finally {
+      setIsFetchingEditData(false);
+    }
+  };
+
+  const handleEditAssociatedSale = async () => {
+    if (!editingAppointment) return;
+
+    setIsFetchingAssociatedSale(true);
+    try {
+      const saleData = cachedAssociatedSale || (await api.get(`/appointments/${editingAppointment.id}/sale/`)).data;
+      setCachedAssociatedSale(saleData);
+      setHasAssociatedSale(true);
+
+      const productById = new Map((products || []).map((p: any) => [p.id, p]));
+
+      setSelectedProducts(
+        (saleData.items || []).map((item: any) => {
+          const prod = productById.get(item.product);
+          return {
+            id: item.product,
+            name: prod?.name || `Produto #${item.product}`,
+            quantity: item.quantity,
+            unit_price: String(item.unit_price)
+          };
+        })
+      );
+
+      const incomingPayments = (saleData.payments || []).map((p: any) => ({
+        method: p.method,
+        amount: String(p.amount).replace('.', ','),
+        payment_date: p.payment_date || format(new Date(), 'yyyy-MM-dd')
+      }));
+      setSalePayments(incomingPayments.length ? incomingPayments : [{ method: 'pix', amount: '0,00', payment_date: format(new Date(), 'yyyy-MM-dd') }]);
+      setSaleDiscount(String(saleData.discount ?? '0').replace('.', ','));
+
+      setIsEditingSale(true);
+      setActiveAppointment(editingAppointment);
+      setProductSearch('');
+      setShowEditAppointmentModal(false);
+      setShowProductSaleModal(true);
+    } catch {
+      setHasAssociatedSale(false);
+      setCachedAssociatedSale(null);
+      toast.error('Este agendamento não possui venda de produtos.');
+    } finally {
+      setIsFetchingAssociatedSale(false);
+    }
+  };
+
+  const handleAddAssociatedSale = () => {
+    if (!editingAppointment) return;
+
+    setHasAssociatedSale(false);
+    setCachedAssociatedSale(null);
+    setSelectedProducts([]);
+    setSalePayments([{ method: 'pix', amount: '0,00', payment_date: format(new Date(), 'yyyy-MM-dd') }]);
+    setSaleDiscount('0,00');
+    setIsEditingSale(false);
+    setActiveAppointment(editingAppointment);
+    setProductSearch('');
+    setShowEditAppointmentModal(false);
+    setShowProductSaleModal(true);
+  };
+
+  const completeWithPaymentsMutation = useMutation({
+    mutationFn: async ({ id, payments, discount, tip }: { id: number; payments: { method: string; amount: string; payment_date?: string }[]; discount: string; tip: string }) => {
+      return api.post(`/appointments/${id}/complete_with_payments/`, {
+        payments: payments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })),
+        discount: unmaskCurrency(discount) || '0',
+        tip: unmaskCurrency(tip) || '0'
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      setShowCompleteModal(false);
+      // Don't clear activeAppointment yet, we might need it for the sale question
+      setPayments([]);
+      setCompleteDiscount('0,00');
+      setCompleteTip('0,00');
+      toast.success('Atendimento concluído com sucesso!');
+      setShowSaleQuestion(true);
+    },
+    onError: (err: any) => toast.error(err.response?.data?.error || 'Erro ao concluir atendimento.'),
+  });
+
+  const createSaleMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return api.post('/sales/', data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['debts'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      setShowProductSaleModal(false);
+      setActiveAppointment(null);
+      setSelectedProducts([]);
+      setSalePayments([]);
+      setSaleDiscount('0,00');
+      setIsEditingSale(false);
+      toast.success('Venda registrada com sucesso!');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.error || 'Erro ao registrar venda.')
+  });
+
+  const updateAssociatedSaleMutation = useMutation({
+    mutationFn: async ({ appointmentId, data }: { appointmentId: number; data: any }) => {
+      return api.patch(`/appointments/${appointmentId}/sale/`, data);
+    },
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['debts'] });
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      setCachedAssociatedSale(res.data);
+      setShowProductSaleModal(false);
+      setActiveAppointment(null);
+      setSelectedProducts([]);
+      setSalePayments([]);
+      setSaleDiscount('0,00');
+      setIsEditingSale(false);
+      toast.success('Venda atualizada com sucesso!');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.error || 'Erro ao atualizar venda.')
+  });
+
+  const createWalkInMutation = useMutation({
+    mutationFn: async () => {
+      if (!walkInClient || walkInServices.length === 0 || !walkInBarber || !walkInTime) throw new Error("Preencha todos os campos.");
+      const dateStr = format(selectedDate, 'yyyy-MM-dd');
+      const dateTime = `${dateStr}T${walkInTime}:00`;
+
+      return api.post('/appointments/walk_in/', {
+        services_ids: walkInServices.map(s => s.id),
+        barber_id: walkInBarber.id,
+        client_id: walkInClient.id,
+        client_name: walkInClient.first_name,
+        date_time: dateTime
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      setShowWalkInModal(false);
+
+      if (pendingWaitlistEntryId) {
+        updateWaitlistMutation.mutate({ id: pendingWaitlistEntryId, status: 'scheduled' });
+        setPendingWaitlistEntryId(null);
+      }
+
+      setWalkInClient(null);
+      setWalkInServices([]);
+      setWalkInBarber(null);
+      setWalkInTime('');
+      toast.success('Atendimento avulso registrado com sucesso!');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.error || 'Erro ao registrar atendimento avulso.')
+  });
+
+  const handleOpenComplete = async (appId: number) => {
+    setShowCompleteModal(true);
+    setIsFetchingAppData(true);
+    try {
+      const res = await api.get<Appointment>(`/appointments/${appId}/`);
+      const app = res.data;
+      setActiveAppointment(app);
+      if (app.payments && app.payments.length > 0) {
+        // Já pago (ex.: InfinitePay) — pré-preenche com o que já foi recebido.
+        setPayments(app.payments.map((p: any) => ({
+          method: p.method,
+          amount: String(p.amount).replace('.', ','),
+          payment_date: p.payment_date || format(new Date(), 'yyyy-MM-dd'),
+        })));
+      } else {
+        setPayments([{ method: 'pix', amount: String(app.total_price).replace('.', ','), payment_date: format(new Date(), 'yyyy-MM-dd') }]);
+      }
+      setCompleteDiscount(app.discount?.replace('.', ',') || '0,00');
+      setCompleteTip(app.tip?.replace('.', ',') || '0,00');
+    } catch (err) {
+      toast.error('Erro ao buscar dados do agendamento.');
+      setShowCompleteModal(false);
+    } finally {
+      setIsFetchingAppData(false);
+    }
+  };
+
+  const addPaymentRow = () => {
+    setPayments([...payments, { method: 'cash', amount: '0,00', payment_date: format(new Date(), 'yyyy-MM-dd') }]);
+  };
+
+  const removePaymentRow = (index: number) => {
+    setPayments(payments.filter((_, i) => i !== index));
+  };
+
+  const updatePayment = (index: number, field: string, value: string) => {
+    const newPayments = [...payments];
+    newPayments[index] = { ...newPayments[index], [field]: value };
+    setPayments(newPayments);
+  };
+
+  const totalProducts = selectedProducts.reduce((acc, curr) => acc + (parseFloat(curr.unit_price) * curr.quantity), 0);
+  const totalSalePaid = salePayments.reduce((acc, curr) => acc + (parseFloat(unmaskCurrency(curr.amount)) || 0), 0);
+  const isSaleTotalValid = selectedProducts.length > 0 && Math.abs(totalSalePaid - (totalProducts - (parseFloat(unmaskCurrency(saleDiscount)) || 0))) < 0.01;
+
+  const totalPaid = payments.reduce((acc, curr) => acc + (parseFloat(unmaskCurrency(curr.amount)) || 0), 0);
+  // A gorjeta é um registro separado: ela não aumenta o valor devido pelo cliente.
+  const expectedTotal = activeAppointment ? parseFloat(activeAppointment.total_price) - (parseFloat(unmaskCurrency(completeDiscount)) || 0) : 0;
+  const tipAmount = parseFloat(unmaskCurrency(completeTip)) || 0;
+  const maximumPaymentTotal = expectedTotal + tipAmount;
+  const isTotalValid = activeAppointment && totalPaid >= expectedTotal - 0.01 && totalPaid <= maximumPaymentTotal + 0.01;
+  const isTotalExceeding = totalPaid > maximumPaymentTotal + 0.01;
+  const remainingDebt = Math.max(0, expectedTotal - totalPaid);
+
+  const expectedSaleTotal = totalProducts - (parseFloat(unmaskCurrency(saleDiscount)) || 0);
+  const isSaleExceeding = totalSalePaid > expectedSaleTotal + 0.01;
+  const remainingSaleDebt = expectedSaleTotal - totalSalePaid;
+
+  const isWalkInValid = walkInClient && walkInServices.length > 0 && walkInBarber && walkInTime;
+
+  const filteredAppointments = appointments || [];
+
+  const getTimelineBounds = () => {
+    const dayOfWeek = selectedDate.getDay() === 0 ? 6 : selectedDate.getDay() - 1; // Backend: 0=Mon
+    const barberId = parseInt(timelineBarberId || '0');
+    const wh = workingHours?.find(w => w.barber === barberId && w.day_of_week === dayOfWeek && w.is_active);
+
+    let startHour = 8;
+    let endHour = 20;
+
+    if (wh) {
+      startHour = parseInt(wh.start_time.split(':')[0]);
+      endHour = parseInt(wh.end_time.split(':')[0]);
+      endHour = Math.min(23, endHour + 1);
+    }
+
+    const timelineHours = [];
+    for (let i = startHour; i <= endHour; i++) {
+      timelineHours.push(i);
+    }
+    return { startHour, endHour, timelineHours };
+  };
+
+  const { startHour, timelineHours } = getTimelineBounds();
+
+  const virtualBreakBlock = (() => {
+    if (!workingHours || !timelineBarberId) return null;
+    const activeBarberId = parseInt(timelineBarberId);
+    const jsDay = selectedDate.getDay();
+    const pyDay = jsDay === 0 ? 6 : jsDay - 1;
+    
+    const wh = workingHours.find(wh => {
+      const whBarberId = typeof wh.barber === 'object' ? wh.barber?.id : wh.barber;
+      return whBarberId === activeBarberId && wh.day_of_week === pyDay && wh.is_active;
+    });
+
+    if (!wh || !wh.break_start_time || !wh.break_end_time) return null;
+
+    const dateStr = format(selectedDate, 'yyyy-MM-dd');
+    return {
+      id: -999,
+      type: 'block' as const,
+      reason: 'Intervalo',
+      start_time: `${dateStr}T${wh.break_start_time}`,
+      end_time: `${dateStr}T${wh.break_end_time}`,
+      barber: activeBarberId,
+      is_virtual_break: true,
+    };
+  })();
+
+  const timelineItems = [
+    ...(filteredAppointments?.filter(a => {
+      const bId = typeof a.barber === 'object' ? a.barber?.id : a.barber;
+      return bId === parseInt(timelineBarberId || '0') ||
+        a.barber_name === barbers?.find(b => b.id.toString() === timelineBarberId)?.first_name ||
+        a.barber_name === barbers?.find(b => b.id.toString() === timelineBarberId)?.username;
+    }).map(a => ({ ...a, type: 'appointment' as const })) || []),
+    ...(timeBlocks?.filter(b => {
+      const bId = typeof b.barber === 'object' ? b.barber?.id : b.barber;
+      return bId === parseInt(timelineBarberId || '0');
+    }).map(b => ({ ...b, type: 'block' as const })) || []),
+    ...(virtualBreakBlock ? [virtualBreakBlock] : [])
+  ];
+
+  return (
+    <div className="flex flex-col lg:flex-row gap-4 lg:gap-8">
+      {/* Calendar Side */}
+      <div className="hidden w-full lg:block lg:w-auto space-y-6">
+        <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+          <CardHeader>
+            <CardTitle>Selecionar Data</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Calendar
+              mode="single"
+              selected={selectedDate}
+              onSelect={(date) => date && setSelectedDate(date)}
+              className="rounded-md border border-border/50"
+              locale={ptBR}
+            />
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">Resumo do Dia</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-muted-foreground">Total:</span>
+              <span className="font-bold">{appointments?.length || 0} agendamentos</span>
+            </div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-muted-foreground">Confirmados:</span>
+              <span className="font-bold text-blue-500">{appointments?.filter(a => a.status === 'confirmed').length || 0}</span>
+            </div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-muted-foreground">Concluídos:</span>
+              <span className="font-bold text-green-500">{appointments?.filter(a => a.status === 'completed').length || 0}</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Appointments List */}
+      <div className="min-w-0 flex-1 space-y-4 sm:space-y-6">
+        <AgendaDateNavigator date={selectedDate} total={appointments?.length || 0} confirmed={appointments?.filter(a => a.status === 'confirmed').length || 0} completed={appointments?.filter(a => a.status === 'completed').length || 0} onDateChange={setSelectedDate} />
+
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4">
+          <div>
+            <p className="eyebrow mb-1 hidden lg:block">Operação diária</p>
+            <h1 className="font-display text-2xl sm:text-3xl font-semibold tracking-tight">
+              Agenda: {format(selectedDate, "dd 'de' MMMM", { locale: ptBR })}
+            </h1>
+            <p className="text-xs sm:text-sm text-muted-foreground">Horários, atendimentos e encaixes do dia.</p>
+          </div>
+          <div className="grid grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
+            <div className="col-span-2 flex items-center gap-2 sm:w-auto">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="w-full gap-2 bg-background sm:w-auto sm:min-w-[150px]">
+                    <Filter className="w-4 h-4 text-muted-foreground" />
+                    <span className="truncate">
+                      {statusFilter.length === Object.keys(statusMap).length
+                        ? "Todos Status"
+                        : statusFilter.length === 0
+                          ? "Nenhum Status"
+                          : `${statusFilter.length} Selecionados`}
+                    </span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-56 bg-card border-border">
+                  {Object.entries(statusMap).map(([key, value]) => (
+                    <DropdownMenuCheckboxItem
+                      key={key}
+                      checked={statusFilter.includes(key)}
+                      onCheckedChange={(checked) => {
+                        if (checked) setStatusFilter([...statusFilter, key]);
+                        else setStatusFilter(statusFilter.filter(s => s !== key));
+                      }}
+                    >
+                      {value.label}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+
+            <div className="col-span-2 grid grid-cols-2 gap-2 sm:flex sm:w-auto">
+              <Button variant="outline" size="sm" onClick={() => setSelectedDate(new Date())}>Hoje</Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => {
+                  if (me?.role !== 'admin') {
+                    setBlockBarber(me);
+                  }
+                  setShowBlockModal(true);
+                }}
+              >
+                <CalendarOff className="w-4 h-4" /> Bloquear
+              </Button>
+            </div>
+
+            <Button
+              size="sm"
+              className="gap-2 bg-emerald-600 text-white hover:bg-emerald-700"
+              onClick={() => {
+                setWalkInClient(null);
+                setWalkInServices([]);
+                setWalkInBarber(me?.role === 'barber' ? me : null);
+                setShowWalkInModal(true);
+              }}
+            >
+              <Zap className="w-4 h-4" /> <span className="whitespace-nowrap">Encaixe / Avulso</span>
+            </Button>
+
+            <Button
+              size="sm"
+              className="gap-2 bg-primary text-primary-foreground shadow-md shadow-primary/15 hover:bg-primary/90"
+              onClick={() => {
+                resetNewAppForm();
+                setShowNewAppointmentModal(true);
+              }}
+            >
+              <Plus className="w-4 h-4" /> <span className="whitespace-nowrap">Novo Agendamento</span>
+            </Button>
+          </div>
+        </div>
+
+        {/* View Tabs */}
+        <div className="sticky top-0 z-20 grid grid-cols-2 gap-1 rounded-2xl border border-border/60 bg-card/90 p-1.5 shadow-soft backdrop-blur-xl">
+          <button
+            type="button"
+            onClick={() => setAgendaView('timeline')}
+            aria-pressed={agendaView === 'timeline'}
+            className={`flex min-h-12 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold transition-all ${
+              agendaView === 'timeline'
+                ? 'bg-primary text-primary-foreground shadow-soft'
+                : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground'
+            }`}
+          >
+            <CalendarIcon className="w-4 h-4" />
+            Agenda do Dia
+          </button>
+          <button
+            type="button"
+            onClick={() => setAgendaView('waitlist')}
+            aria-pressed={agendaView === 'waitlist'}
+            className={`flex min-h-12 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold transition-all ${
+              agendaView === 'waitlist'
+                ? 'bg-primary text-primary-foreground shadow-soft'
+                : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground'
+            }`}
+          >
+            <Bell className="w-4 h-4" />
+            Fila de Espera
+            {waitingCount > 0 && (
+              <span className={`grid h-5 min-w-5 place-items-center rounded-full px-1 text-[10px] font-bold ${agendaView === 'waitlist' ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-amber-500 text-white'}`}>
+                {waitingCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Waitlist View */}
+        {agendaView === 'waitlist' && (
+          <div className="animate-in space-y-4 fade-in duration-300 sm:space-y-5">
+            <section className="relative overflow-hidden rounded-3xl border border-border/60 bg-card/85 p-4 shadow-soft sm:p-6">
+              <div className="absolute -right-12 -top-16 h-40 w-40 rounded-full bg-accent/15 blur-2xl" />
+              <div className="relative flex items-start gap-4">
+                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-soft">
+                  <Bell className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <span className="eyebrow">Oportunidades de encaixe</span>
+                  <h3 className="mt-1 font-display text-2xl font-semibold leading-none sm:text-3xl">Fila de espera</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">Entre em contato, acompanhe o retorno e transforme uma vaga disponível em agendamento.</p>
+                </div>
+              </div>
+            </section>
+
+            {/* Filters */}
+            <div className="mobile-scroll-row" role="tablist" aria-label="Filtrar fila de espera por status">
+              {waitlistFilters.map((filter) => (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={waitlistStatusFilter === filter.value}
+                  key={filter.value}
+                  onClick={() => setWaitlistStatusFilter(filter.value)}
+                  className={`min-h-11 shrink-0 rounded-xl border px-4 text-xs font-semibold transition-all ${
+                    waitlistStatusFilter === filter.value
+                      ? 'border-primary bg-primary text-primary-foreground shadow-soft'
+                      : 'border-border/60 bg-card/70 text-muted-foreground hover:border-primary/30 hover:text-foreground'
+                  }`}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
+
+            {isLoadingWaitlist ? (
+              <div className="flex items-center justify-center rounded-3xl border border-border/60 bg-card/70 py-16 text-muted-foreground">
+                <Loader2 className="mr-2 h-5 w-5 animate-spin text-primary" /> Carregando fila...
+              </div>
+            ) : !waitlistEntries || waitlistEntries.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-border bg-card/55 px-5 py-16 text-center text-muted-foreground">
+                <div className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-primary/8">
+                  <Bell className="h-6 w-6 text-primary/60" />
+                </div>
+                <p className="font-display text-2xl font-semibold text-foreground">Fila tranquila por aqui</p>
+                <p className="mt-2 max-w-sm text-sm">Não há clientes com o status “{waitlistFilters.find(item => item.value === waitlistStatusFilter)?.label || 'Todos'}”.</p>
+              </div>
+            ) : (
+              <div className="grid gap-4 xl:grid-cols-2">
+                {waitlistEntries.map((entry) => {
+                  const cleanPhone = entry.client_phone.replace(/\D/g, '');
+                  const waPhone = cleanPhone.length <= 11 ? `55${cleanPhone}` : cleanPhone;
+                  const waMsg = `Olá ${entry.client_name}! Tenho uma vaga disponível para ${entry.service_name}. Podemos agendar?`;
+
+                  return (
+                    <article key={entry.id} className="group overflow-hidden rounded-3xl border border-border/60 bg-card/85 shadow-soft transition-all hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-lift">
+                      <div className="space-y-4 p-4 sm:p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-primary/10 ring-1 ring-primary/10">
+                            <span className="font-display text-lg font-semibold text-primary">
+                              {entry.client_name.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold">{entry.client_name}</p>
+                            <p className="text-xs text-muted-foreground">{entry.client_phone}</p>
+                          </div>
+                        </div>
+                        <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider ${waitlistStatusStyles[entry.status] || 'border-border bg-muted text-muted-foreground'}`}>
+                          {entry.status_display}
+                        </span>
+                      </div>
+
+                      <div className="rounded-2xl border border-border/50 bg-background/50 p-3.5">
+                        <div className="flex items-start gap-3">
+                          <Scissors className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                          <div><p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Serviço desejado</p><p className="mt-0.5 text-sm font-semibold">{entry.service_name}</p></div>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-3 border-t border-border/50 pt-3 text-xs">
+                          <div><p className="text-[10px] text-muted-foreground">Data preferida</p><p className="mt-0.5 font-semibold">{format(new Date(entry.preferred_date + 'T12:00:00'), 'dd/MM/yyyy')}</p></div>
+                          <div><p className="text-[10px] text-muted-foreground">Período</p><p className="mt-0.5 font-semibold">{waitlistPeriodLabels[entry.preferred_period] || entry.preferred_period_display}</p></div>
+                        </div>
+                      </div>
+
+                      {entry.notes && (
+                        <div className="rounded-xl border-l-2 border-primary/30 bg-primary/[0.035] px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                          {entry.notes}
+                        </div>
+                      )}
+
+                      {/* Actions */}
+                      <div className="grid grid-cols-2 gap-2 border-t border-border/50 pt-4 sm:grid-cols-4">
+                        <Button
+                          size="sm"
+                          className="h-10 gap-1.5 bg-[#25D366] text-xs text-white hover:bg-[#20bd5a]"
+                          onClick={() => window.open(`https://wa.me/${waPhone}?text=${encodeURIComponent(waMsg)}`, '_blank')}
+                        >
+                          <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-10 gap-1.5 text-xs"
+                          onClick={() => window.open(`tel:${entry.client_phone}`)}
+                        >
+                          <Phone className="w-3.5 h-3.5" /> Ligar
+                        </Button>
+                        {entry.status === 'waiting' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-10 gap-1.5 border-blue-500/25 text-xs text-blue-700 hover:bg-blue-500/10"
+                            onClick={() => updateWaitlistMutation.mutate({ id: entry.id, status: 'contacted' })}
+                            disabled={updateWaitlistMutation.isPending}
+                          >
+                            <CheckCheck className="h-3.5 w-3.5" /> Contatado
+                          </Button>
+                        )}
+                        {entry.status !== 'scheduled' && entry.status !== 'cancelled' && (
+                          <Button
+                            size="sm"
+                            className="h-10 gap-1.5 text-xs"
+                            onClick={() => handleConvertToAppointment(entry)}
+                          >
+                            <CalendarIcon className="w-3.5 h-3.5" /> Agendar
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="col-span-2 h-9 gap-1.5 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:col-span-4"
+                          onClick={() => deleteWaitlistMutation.mutate(entry.id)}
+                          disabled={deleteWaitlistMutation.isPending}
+                          aria-label={`Excluir ${entry.client_name} da fila de espera`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" /> Remover da fila
+                        </Button>
+                      </div>
+                      <p className="text-center text-[10px] text-muted-foreground">Na fila desde {format(new Date(entry.created_at), "dd/MM 'às' HH:mm")}</p>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Timeline View */}
+        {agendaView === 'timeline' && (
+        <div className="flex-1 bg-card/90 rounded-3xl border border-white/70 shadow-lift overflow-hidden flex flex-col min-h-[560px] sm:min-h-[600px]">
+          {/* Timeline Header */}
+          <div className="sticky top-0 z-20 p-3 sm:p-4 border-b border-border/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 bg-card/95 backdrop-blur">
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              {me?.role === 'admin' ? (
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <User className="w-4 h-4 text-muted-foreground" />
+                  <Select value={timelineBarberId || ''} onValueChange={setTimelineBarberId}>
+                    <SelectTrigger className="w-full sm:w-[220px] bg-background border-border/50">
+                      <SelectValue placeholder="Selecione a profissional" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-card border-border">
+                      {barbers?.map(b => (
+                        <SelectItem key={b.id} value={b.id.toString()}>Agenda de {b.first_name || b.username}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                <h3 className="font-bold text-lg flex items-center gap-2">
+                  <User className="w-5 h-5 text-primary" /> {me?.first_name || me?.username}
+                </h3>
+              )}
+            </div>
+          </div>
+
+          {/* Timeline Body */}
+          {isLoading || isLoadingBlocks ? (
+            <div className="flex-1 flex items-center justify-center text-muted-foreground italic">
+              <Loader2 className="w-6 h-6 animate-spin mr-2" /> Carregando agenda...
+            </div>
+          ) : timelineItems.length === 0 && statusFilter.length < Object.keys(statusMap).length ? (
+            <div className="flex-1 flex items-center justify-center text-muted-foreground italic px-4 text-center">
+              Nenhum agendamento com os status selecionados para esta profissional.
+            </div>
+          ) : (
+            <div className="relative flex-1 overflow-y-auto overflow-x-hidden min-h-[500px]">
+              {/* Grid Background */}
+              <div className="absolute inset-0">
+                {timelineHours.map(h => (
+                  <div key={h} className="flex border-b border-border/30" style={{ height: '120px' }}>
+                    <div className="w-14 sm:w-16 shrink-0 border-r border-border/30 text-[11px] sm:text-xs text-muted-foreground font-medium flex justify-center pt-1.5 bg-muted/5">
+                      {h.toString().padStart(2, '0')}:00
+                    </div>
+                    <div className="flex-1 relative">
+                      <div className="absolute top-1/2 left-0 right-0 border-b border-border/20 border-dashed" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Blocks */}
+              <div className="absolute top-0 bottom-0 left-14 sm:left-16 right-0 p-1 sm:p-2">
+                {(() => {
+                  // Enrich items with start/end Date objects and duration
+                  const enrichedItems = timelineItems.map(item => {
+                    let startDate: Date;
+                    let endDate: Date;
+                    let durationMinutes = 30;
+
+                    if (item.type === 'appointment') {
+                      startDate = new Date(item.date_time);
+                      const srvs = services?.filter(s => item.services?.includes(s.id)) || [];
+                      durationMinutes = srvs.length > 0 ? srvs.reduce((a,b) => a + b.duration_minutes, 0) : 30;
+                      endDate = new Date(startDate.getTime() + durationMinutes * 60000);
+                    } else {
+                      startDate = new Date(item.start_time);
+                      endDate = new Date(item.end_time);
+                      durationMinutes = Math.round((endDate.getTime() - startDate.getTime()) / 60000);
+                    }
+
+                    return {
+                      ...item,
+                      startDate,
+                      endDate,
+                      durationMinutes
+                    };
+                  }).sort((a, b) => a.startDate.getTime() - b.startDate.getTime() || b.endDate.getTime() - a.startDate.getTime());
+
+                  // Group into clusters of overlapping events
+                  const clusters: { events: typeof enrichedItems; columns: typeof enrichedItems[] }[] = [];
+
+                  for (const event of enrichedItems) {
+                    let joinedCluster = false;
+                    for (const cluster of clusters) {
+                      const overlaps = cluster.events.some(e => 
+                        event.startDate.getTime() < e.endDate.getTime() && event.endDate.getTime() > e.startDate.getTime()
+                      );
+                      if (overlaps) {
+                        cluster.events.push(event);
+                        let placed = false;
+                        for (let cIdx = 0; cIdx < cluster.columns.length; cIdx++) {
+                          const col = cluster.columns[cIdx];
+                          const colOverlaps = col.some(e =>
+                            event.startDate.getTime() < e.endDate.getTime() && event.endDate.getTime() > e.startDate.getTime()
+                          );
+                          if (!colOverlaps) {
+                            col.push(event);
+                            placed = true;
+                            break;
+                          }
+                        }
+                        if (!placed) {
+                          cluster.columns.push([event]);
+                        }
+                        joinedCluster = true;
+                        break;
+                      }
+                    }
+
+                    if (!joinedCluster) {
+                      clusters.push({
+                        events: [event],
+                        columns: [[event]]
+                      });
+                    }
+                  }
+
+                  // Flatten back with column information
+                  const positionedEvents = enrichedItems.map(event => {
+                    let colIndex = 0;
+                    let totalCols = 1;
+                    for (const cluster of clusters) {
+                      if (cluster.events.includes(event)) {
+                        totalCols = cluster.columns.length;
+                        colIndex = cluster.columns.findIndex(col => col.includes(event));
+                        break;
+                      }
+                    }
+                    return {
+                      ...event,
+                      colIndex,
+                      totalCols
+                    };
+                  });
+
+                  return positionedEvents.map(item => {
+                    const top = ((item.startDate.getHours() - startHour) * 60 + item.startDate.getMinutes()) * 2;
+                    const height = item.durationMinutes * 2;
+
+                    if (top < 0) return null; // Outside top bounds
+
+                    const isApp = item.type === 'appointment';
+                    const isCompleted = isApp && item.status === 'completed';
+                    const isCancelled = isApp && item.status === 'cancelled';
+                    const isNoShow = isApp && item.status === 'no_show';
+                    const isConfirmed = isApp && item.status === 'confirmed';
+
+                    const isCompact = height <= 40;
+
+                    // Compute dynamic left and width percentages
+                    const widthPct = 100 / item.totalCols;
+                    const leftPct = item.colIndex * widthPct;
+
+                    return (
+                      <DropdownMenu key={`${item.type}-${item.id}`}>
+                        <DropdownMenuTrigger asChild>
+                          <div
+                            className={cn(
+                              "absolute rounded-lg border overflow-hidden transition-all hover:ring-2 cursor-pointer shadow-sm z-10",
+                              isCompact ? "p-1 flex items-center" : "p-1.5 sm:p-2 flex flex-col gap-0",
+                              isApp ? "bg-primary/10 border-primary/20 hover:ring-primary/50" : "bg-destructive/10 border-destructive/30 border-dashed hover:ring-destructive/50",
+                              isCompleted && "bg-green-500/10 border-green-500/30",
+                              isCancelled && "bg-red-500/10 border-red-500/30",
+                              isNoShow && "bg-gray-500/10 border-gray-500/30",
+                              isConfirmed && "bg-blue-500/10 border-blue-500/30"
+                            )}
+                            style={{
+                              top: `${top}px`,
+                              height: `${height}px`,
+                              left: `calc(${leftPct}% + ${item.colIndex === 0 ? '2px' : '4px'})`,
+                              width: `calc(${widthPct}% - ${item.totalCols === 1 ? '4px' : '6px'})`,
+                            }}
+                          >
+                            {isCompact ? (
+                              <div className="flex items-center justify-between w-full h-full gap-2">
+                                <div className="flex items-center gap-1 truncate">
+                                  <span className="font-bold text-[10px] truncate">{isApp ? item.client_name : (item.reason || "Bloqueio")}</span>
+                                  {isApp && <span className="text-[9px] opacity-80 truncate shrink-0 hidden sm:inline">- {item.service_name}</span>}
+                                </div>
+                                <div className="text-right shrink-0 leading-none">
+                                  <div className="text-[9px] font-black opacity-70">
+                                    {format(item.startDate, 'HH:mm')}-{format(item.endDate, 'HH:mm')}
+                                  </div>
+                                  <div className="text-[8px] opacity-50 font-bold">
+                                    {item.durationMinutes} min
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="flex items-start justify-between gap-1 sm:gap-2 w-full">
+                                  <div className="font-bold text-[11px] sm:text-xs leading-tight truncate flex items-center gap-1">
+                                    <span className="truncate">{isApp ? item.client_name : (item.reason || "Bloqueio")}</span>
+                                    {isApp && item.notes && (
+                                      <span className="font-normal text-[9px] sm:text-[10px] opacity-50 italic truncate shrink">
+                                        ({item.notes})
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <div className="text-[9px] sm:text-[10px] font-black opacity-70 leading-none">
+                                      {format(item.startDate, 'HH:mm')} - {format(item.endDate, 'HH:mm')}
+                                    </div>
+                                    <div className="text-[8px] sm:text-[9px] opacity-60 font-bold">
+                                      {item.durationMinutes} minutos
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="text-[10px] sm:text-xs opacity-80 truncate flex items-center gap-1 font-medium w-full">
+                                  {isApp ? <><Scissors className="w-2.5 h-2.5 shrink-0" /> <span className="truncate">{item.service_name}</span></> : <><CalendarOff className="w-2.5 h-2.5 shrink-0" /> <span className="truncate">{item.reason}</span></>}
+                                  {isApp && (item as any).payment_status === 'paid' && (
+                                    <span className="ml-auto shrink-0 inline-flex items-center gap-0.5 rounded bg-green-500/20 text-green-600 px-1 py-px text-[8px] sm:text-[9px] font-black uppercase leading-none">
+                                      <CheckCheck className="w-2.5 h-2.5" /> Pago
+                                    </span>
+                                  )}
+                                </div>
+
+                                {isApp && item.notes && height >= 80 && (
+                                  <div className="text-[9px] sm:text-[10px] opacity-60 line-clamp-2 italic leading-tight w-full mt-0.5">
+                                    "{item.notes}"
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="center" side="bottom" className="bg-card border-border w-48 z-50">
+                          {isApp ? (
+                            <>
+                              <div className="px-2 py-1.5 text-xs font-bold border-b border-border/50 mb-1">
+                                Ações do Agendamento
+                              </div>
+                              <DropdownMenuItem onClick={() => handleEditAppointment(item.id)}>
+                                <RefreshCw className="w-4 h-4 mr-2" /> Editar Agendamento
+                              </DropdownMenuItem>
+                              {(() => {
+                                const cleanPhone = (item.client_phone || '').replace(/\D/g, '');
+                                if (!cleanPhone) return null;
+                                const waPhone = cleanPhone.length <= 11 ? `55${cleanPhone}` : cleanPhone;
+                                const waMsg = `Olá ${item.client_name}! Passando para falar sobre seu horário do dia ${format(item.startDate, "dd/MM 'às' HH:mm")} (${item.service_name}).`;
+                                return (
+                                  <DropdownMenuItem
+                                    onClick={() => window.open(`https://wa.me/${waPhone}?text=${encodeURIComponent(waMsg)}`, '_blank')}
+                                    className="text-[#25D366] focus:text-[#25D366]"
+                                  >
+                                    <MessageCircle className="w-4 h-4 mr-2" /> Contatar via WhatsApp
+                                  </DropdownMenuItem>
+                                );
+                              })()}
+                              {item.status === 'pending' && (
+                                <DropdownMenuItem onClick={() => updateStatusMutation.mutate({ id: item.id, status: 'confirmed' })}>
+                                  <Check className="w-4 h-4 mr-2 text-blue-500" /> Confirmar
+                                </DropdownMenuItem>
+                              )}
+                              {item.status === 'confirmed' && (
+                                <DropdownMenuItem onClick={() => handleOpenComplete(item.id)} className="font-bold text-green-500">
+                                  <Check className="w-4 h-4 mr-2" /> Concluir Atendimento
+                                </DropdownMenuItem>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              {(item as any).is_virtual_break ? (
+                                <>
+                                  <div className="px-2 py-1.5 text-xs font-bold border-b border-border/50 mb-1 text-amber-500">
+                                    Intervalo da profissional
+                                  </div>
+                                  <div className="px-2 py-1.5 text-[11px] text-muted-foreground leading-normal">
+                                    Definido no cadastro de horários de trabalho desta profissional.
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="px-2 py-1.5 text-xs font-bold border-b border-border/50 mb-1 text-destructive">
+                                    {item.reason || "Bloqueio de Agenda"}
+                                  </div>
+                                  <DropdownMenuItem
+                                    className="text-destructive"
+                                    onClick={() => {
+                                      setBlockToRemove(item.id);
+                                      setShowRemoveBlockConfirm(true);
+                                    }}
+                                  >
+                                    <Trash2 className="w-4 h-4 mr-2" /> Remover Bloqueio
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+          )}
+        </div>
+        )}
+      </div>
+
+      {/* Service Completion Modal */}
+      <Dialog open={showCompleteModal} onOpenChange={setShowCompleteModal}>
+        <DialogContent className="bg-card border-border sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Concluir Atendimento</DialogTitle>
+            <DialogDescription>
+              {isFetchingAppData ? (
+                <div className="h-4 w-48 bg-muted animate-pulse rounded mt-1" />
+              ) : (
+                <>Registre as formas de pagamento para o serviço de <strong>{activeAppointment?.service_name}</strong>.</>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {isFetchingAppData ? (
+              <div className="space-y-4">
+                <div className="flex justify-between">
+                  <div className="h-4 w-24 bg-muted animate-pulse rounded" />
+                  <div className="h-6 w-20 bg-muted animate-pulse rounded" />
+                </div>
+                <div className="h-12 w-full bg-muted animate-pulse rounded" />
+                <div className="h-12 w-full bg-muted animate-pulse rounded" />
+              </div>
+            ) : (
+              <>
+                {activeAppointment?.payment_status === 'paid' && (
+                  <div className="flex items-start gap-2 p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-600 text-xs">
+                    <CheckCheck className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <span>
+                      <strong>Pagamento já recebido via InfinitePay</strong>
+                      {activeAppointment.payment_capture_method === 'credit_card' ? ' (cartão)' : ' (PIX)'}
+                      {activeAppointment.payment_confirmed_at && ` em ${format(new Date(activeAppointment.payment_confirmed_at), "dd/MM 'às' HH:mm")}`}.
+                      Confira os valores e clique em Concluir — não cobre novamente.
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-muted-foreground">Valor do Serviço:</span>
+                  <span className="font-bold text-lg">{activeAppointment && formatCurrency(activeAppointment.total_price)}</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Desconto</Label>
+                    <div className="relative">
+                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                      <Input
+                        type="text"
+                        className="pl-7 bg-background border-border/50 h-10"
+                        value={completeDiscount}
+                        onChange={(e) => {
+                          const val = maskCurrency(e.target.value);
+                          setCompleteDiscount(val);
+                          if (payments.length === 1 && activeAppointment) {
+                            const disc = parseFloat(unmaskCurrency(val)) || 0;
+                            const newTotal = parseFloat(activeAppointment.total_price) - disc;
+                            setPayments([{ ...payments[0], amount: newTotal.toFixed(2).replace('.', ',') }]);
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Gorjeta</Label>
+                    <div className="relative">
+                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                      <Input
+                        type="text"
+                        className="pl-7 bg-background border-border/50 h-10"
+                        value={completeTip}
+                        onChange={(e) => {
+                          const val = maskCurrency(e.target.value);
+                          setCompleteTip(val);
+                          // A gorjeta pode estar incluída no pagamento, mas não
+                          // alteramos o valor do serviço nem criamos dívida por ela.
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {payments.map((payment, index) => (
+                    <div key={index} className="flex gap-2 items-center">
+                      <div className="flex-1">
+                        <Select
+                          value={payment.method}
+                          onValueChange={(val) => updatePayment(index, 'method', val)}
+                        >
+                          <SelectTrigger className="bg-background border-border/50 h-11">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="bg-card border-border">
+                            <SelectItem value="pix">PIX</SelectItem>
+                            <SelectItem value="cash">Dinheiro</SelectItem>
+                            <SelectItem value="credit">Cartão de Crédito</SelectItem>
+                            <SelectItem value="debit">Cartão de Débito</SelectItem>
+                            {customMethods?.filter(m => m.is_active).map(m => (
+                              <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="w-32 relative">
+                        <Input
+                          type="date"
+                          className="bg-background border-border/50 h-11 px-2 text-xs"
+                          value={payment.payment_date || format(new Date(), 'yyyy-MM-dd')}
+                          onChange={(e) => updatePayment(index, 'payment_date', e.target.value)}
+                        />
+                      </div>
+                      <div className="w-32 relative">
+                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                        <Input
+                          type="text"
+                          className="pl-7 bg-background border-border/50 h-11"
+                          value={payment.amount}
+                          onChange={(e) => updatePayment(index, 'amount', maskCurrency(e.target.value))}
+                        />
+                      </div>
+                      {payments.length > 1 && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive h-11 w-11"
+                          onClick={() => removePaymentRow(index)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <Button variant="outline" size="sm" className="w-full gap-2 border-dashed h-11" onClick={addPaymentRow}>
+                  <Plus className="w-4 h-4" /> Adicionar forma de pagamento
+                </Button>
+
+                <div className={`p-4 rounded-lg flex justify-between items-center ${isTotalValid ? 'bg-green-500/10 text-green-500' : isTotalExceeding ? 'bg-red-500/10 text-red-500' : 'bg-yellow-500/10 text-yellow-500'}`}>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium">Soma dos pagamentos:</span>
+                    {!isTotalValid && !isTotalExceeding && remainingDebt > 0.01 && (
+                      <span className="text-xs opacity-80">Faltam {formatCurrency(remainingDebt)} — será registrado como fiado</span>
+                    )}
+                  </div>
+                  <span className="font-bold">{formatCurrency(totalPaid)}</span>
+                </div>
+              </>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCompleteModal(false)}>Cancelar</Button>
+            <Button
+              className="px-6 font-bold"
+              disabled={isFetchingAppData || isTotalExceeding || completeWithPaymentsMutation.isPending}
+              onClick={() => {
+                if (!activeAppointment) return;
+                if (!isTotalValid && remainingDebt > 0.01) {
+                  setShowFiadoConfirm(true);
+                } else {
+                  completeWithPaymentsMutation.mutate({
+                    id: activeAppointment.id,
+                    payments,
+                    discount: completeDiscount || '0',
+                    tip: completeTip || '0'
+                  });
+                }
+              }}
+            >
+              {completeWithPaymentsMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Finalizar Atendimento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Appointment Modal */}
+      <Dialog open={showEditAppointmentModal} onOpenChange={setShowEditAppointmentModal}>
+        <DialogContent className="bg-card border-border sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar Agendamento</DialogTitle>
+            <DialogDescription>
+              {isFetchingEditData ? (
+                <div className="h-4 w-48 bg-muted animate-pulse rounded mt-1" />
+              ) : (
+                <>Altere as informações do agendamento de <strong>{editingAppointment?.client_name}</strong>.</>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {isFetchingEditData ? (
+              <div className="space-y-4">
+                <div className="h-12 w-full bg-muted animate-pulse rounded" />
+                <div className="h-12 w-full bg-muted animate-pulse rounded" />
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label>Serviço(s)</Label>
+                  <Popover open={isEditServicePopoverOpen} onOpenChange={setIsEditServicePopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={isEditServicePopoverOpen}
+                        className="w-full justify-between bg-background border-border/50 h-11 font-normal"
+                      >
+                        {editServices.length > 0
+                          ? `${editServices.length} ${editServices.length === 1 ? 'serviço selecionado' : 'serviços selecionados'}`
+                          : "Selecione o(s) serviço(s)"}
+                        <MoreVertical className="ml-2 h-4 w-4 shrink-0 opacity-50 rotate-90" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent side="bottom" align="start" sideOffset={4} avoidCollisions={false} className="w-[var(--radix-popover-trigger-width)] p-0 bg-card border-border shadow-2xl">
+                      <div className="max-h-[300px] overflow-y-auto py-1">
+                        {services?.map((s: any) => {
+                          const isSelected = editServices.some((sv: any) => sv.id === s.id);
+                          return (
+                            <div
+                              key={s.id}
+                              className={cn(
+                                "relative flex cursor-pointer select-none items-center justify-between rounded-sm px-3 py-2.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
+                                isSelected && "bg-accent"
+                              )}
+                              onClick={() => {
+                                if (isSelected) {
+                                  setEditServices(editServices.filter((sv: any) => sv.id !== s.id));
+                                } else {
+                                  setEditServices([...editServices, s]);
+                                }
+                              }}
+                            >
+                              <div className="flex items-center">
+                                <Check className={cn("mr-2 h-4 w-4 shrink-0", isSelected ? "opacity-100" : "opacity-0")} />
+                                <span>{s.name}</span>
+                              </div>
+                              <span className="text-xs text-muted-foreground shrink-0 ml-2">{formatCurrency(s.price)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                  {editServices.length > 0 && (
+                    <p className="text-[11px] text-muted-foreground pl-1">
+                      Total: {formatCurrency(editingAppointment?.total_price || 0)} • {editServices.reduce((a: number, b: any) => a + b.duration_minutes, 0)} min
+                    </p>
+                  )}
+                </div>
+
+                {editingAppointment?.status === 'completed' && (
+                  <div className="space-y-4 pt-2 border-t border-border/50">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] uppercase text-muted-foreground font-bold">Desconto</Label>
+                        <div className="relative">
+                          <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                          <Input
+                            type="text"
+                            className="pl-6 bg-background border-border/50 h-10"
+                            value={editDiscount}
+                            onChange={(e) => {
+                              const val = maskCurrency(e.target.value);
+                              setEditDiscount(val);
+                              if (editPayments.length === 1 && editServices.length > 0) {
+                                const disc = parseFloat(unmaskCurrency(val)) || 0;
+                                const t = parseFloat(unmaskCurrency(editTip)) || 0;
+                                const svcPrice = editServices.reduce((a,b)=>a+Number(b.price),0);
+                                const newTotal = svcPrice - disc + t;
+                                setEditPayments([{ ...editPayments[0], amount: newTotal.toFixed(2).replace('.', ',') }]);
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] uppercase text-muted-foreground font-bold">Gorjeta</Label>
+                        <div className="relative">
+                          <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                          <Input
+                            type="text"
+                            className="pl-6 bg-background border-border/50 h-10"
+                            value={editTip}
+                            onChange={(e) => {
+                              const val = maskCurrency(e.target.value);
+                              setEditTip(val);
+                              if (editPayments.length === 1 && editServices.length > 0) {
+                                const disc = parseFloat(unmaskCurrency(editDiscount)) || 0;
+                                const t = parseFloat(unmaskCurrency(val)) || 0;
+                                const svcPrice = editServices.reduce((a,b)=>a+Number(b.price),0);
+                                const newTotal = svcPrice - disc + t;
+                                setEditPayments([{ ...editPayments[0], amount: newTotal.toFixed(2).replace('.', ',') }]);
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <Label className="text-xs uppercase text-muted-foreground font-bold">Formas de Pagamento</Label>
+                    <div className="space-y-3">
+                      {editPayments.map((payment: any, index: number) => (
+                        <div key={index} className="flex gap-2 items-center">
+                          <div className="flex-1">
+                            <Select
+                              value={payment.method}
+                              onValueChange={(val) => {
+                                const newPayments = [...editPayments];
+                                newPayments[index].method = val;
+                                setEditPayments(newPayments);
+                              }}
+                            >
+                              <SelectTrigger className="bg-background border-border/50 h-10">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent className="bg-card border-border">
+                                <SelectItem value="pix">PIX</SelectItem>
+                                <SelectItem value="cash">Dinheiro</SelectItem>
+                                <SelectItem value="credit">Cartão de Crédito</SelectItem>
+                                <SelectItem value="debit">Cartão de Débito</SelectItem>
+                                {customMethods?.filter(m => m.is_active).map(m => (
+                                  <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="w-32 relative">
+                            <Input
+                              type="date"
+                              className="bg-background border-border/50 h-10 px-2 text-xs"
+                              value={payment.payment_date || format(new Date(), 'yyyy-MM-dd')}
+                              onChange={(e) => {
+                                const newPayments = [...editPayments];
+                                newPayments[index].payment_date = e.target.value;
+                                setEditPayments(newPayments);
+                              }}
+                            />
+                          </div>
+                          <div className="w-28 relative">
+                            <DollarSign className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                            <Input
+                              type="text"
+                              className="pl-6 bg-background border-border/50 h-10"
+                              value={payment.amount}
+                              onChange={(e) => {
+                                const newPayments = [...editPayments];
+                                newPayments[index].amount = maskCurrency(e.target.value);
+                                setEditPayments(newPayments);
+                              }}
+                            />
+                          </div>
+                          {editPayments.length > 1 && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive h-10 w-10"
+                              onClick={() => setEditPayments(editPayments.filter((_, i) => i !== index))}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full gap-2 border-dashed h-10 text-xs"
+                        onClick={() => setEditPayments([...editPayments, { method: 'pix', amount: '0', payment_date: format(new Date(), 'yyyy-MM-dd') }])}
+                      >
+                        <Plus className="w-3 h-3" /> Adicionar Pagamento
+                      </Button>
+                    </div>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full gap-2 h-10 text-xs font-bold"
+                      disabled={isFetchingAssociatedSale}
+                      onClick={hasAssociatedSale ? handleEditAssociatedSale : handleAddAssociatedSale}
+                    >
+                      {isFetchingAssociatedSale && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                      <ShoppingCart className="w-4 h-4" />
+                      {hasAssociatedSale ? 'Editar Produtos da Venda' : 'Adicionar Produtos'}
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-3 mt-4 border-t border-border/50 pt-4">
+            {editingAppointment?.status !== 'completed' && editingAppointment?.status !== 'cancelled' && editingAppointment?.status !== 'no_show' && (
+              <div className="grid grid-cols-2 gap-2 w-full">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-muted border-gray-200 h-10 text-xs sm:text-sm font-medium"
+                  onClick={() => setShowNoShowConfirm(true)}
+                >
+                  Faltou
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20 h-10 text-xs sm:text-sm font-medium"
+                  onClick={() => setShowCancelConfirm(true)}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            )}
+            {editingAppointment?.status === 'completed' && (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20 h-10 text-xs sm:text-sm font-bold"
+                disabled={cancelCompletedMutation.isPending}
+                onClick={() => setShowCancelCompletedConfirm(true)}
+              >
+                {cancelCompletedMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                Cancelar Agendamento Concluído
+              </Button>
+            )}
+            <div className="flex gap-2 justify-end w-full">
+              <Button variant="outline" className="h-10" onClick={() => setShowEditAppointmentModal(false)}>Voltar</Button>
+              <Button
+                className="px-6 font-bold h-10 bg-primary text-primary-foreground hover:bg-primary/90"
+                disabled={isFetchingEditData || editServices.length === 0 || updateAppointmentMutation.isPending}
+                onClick={() => {
+                  updateAppointmentMutation.mutate({
+                    id: editingAppointment.id,
+                    data: {
+                      services: editServices.map(s => s.id),
+                      payments: editingAppointment.status === 'completed' ? editPayments.map((p: any) => ({ ...p, amount: unmaskCurrency(p.amount) })) : undefined,
+                      total_price: editingAppointment.status === 'completed'
+                        ? editPayments.reduce((acc: number, p: any) => acc + (parseFloat(unmaskCurrency(p.amount)) || 0), 0)
+                        : undefined,
+                      discount: editingAppointment.status === 'completed' ? (unmaskCurrency(editDiscount) || '0') : undefined,
+                      tip: editingAppointment.status === 'completed' ? (unmaskCurrency(editTip) || '0') : undefined
+                    }
+                  });
+                }}
+              >
+                {updateAppointmentMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                Salvar Alterações
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Sale Question Modal */}
+      <Dialog open={showSaleQuestion} onOpenChange={setShowSaleQuestion}>
+        <DialogContent className="bg-card border-border sm:max-w-sm text-center">
+          <DialogHeader>
+            <DialogTitle className="text-center text-xl">Atendimento Finalizado!</DialogTitle>
+            <DialogDescription className="text-center text-base pt-2">
+              O cliente <strong>{activeAppointment?.client_name}</strong> comprou algum produto?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-4 pt-4">
+            <Button
+              variant="outline"
+              className="flex-1 h-12 text-lg font-medium"
+              onClick={() => {
+                setShowSaleQuestion(false);
+                setActiveAppointment(null);
+              }}
+            >
+              Não
+            </Button>
+            <Button
+              className="flex-1 h-12 text-lg font-bold shadow-lg shadow-primary/20"
+              onClick={() => {
+                setShowSaleQuestion(false);
+                setSalePayments([{ method: 'pix', amount: '0,00', payment_date: format(new Date(), 'yyyy-MM-dd') }]);
+                setSelectedProducts([]);
+                setShowProductSaleModal(true);
+              }}
+            >
+              Sim
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Standalone Product Sale Modal */}
+      <Dialog
+        open={showProductSaleModal}
+        onOpenChange={(open) => {
+          setShowProductSaleModal(open);
+          if (!open) {
+            setIsEditingSale(false);
+            setActiveAppointment(null);
+          }
+        }}
+      >
+        <DialogContent className="bg-card border-border sm:max-w-2xl overflow-y-auto max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle>{isEditingSale ? 'Editar Venda de Produtos' : 'Venda de Produtos'}</DialogTitle>
+            <DialogDescription>
+              {isEditingSale ? (
+                <>Edite os produtos vendidos para <strong>{activeAppointment?.client_name || 'Cliente'}</strong>.</>
+              ) : (
+                <>Registre os produtos vendidos para <strong>{activeAppointment?.client_name || 'Cliente'}</strong>.</>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid md:grid-cols-2 gap-8 py-4">
+            {/* Products Side */}
+            <div className="space-y-4">
+              <h3 className="font-bold text-sm flex items-center gap-2 text-primary uppercase tracking-wider">
+                <ShoppingCart className="w-4 h-4" /> Itens da Venda
+              </h3>
+
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Pesquisar produto..."
+                  className="pl-9 bg-background border-border/50 h-10"
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                />
+
+                {productSearch && (
+                  <Card className="absolute top-full left-0 right-0 z-50 mt-1 border-border shadow-2xl bg-card max-h-[200px] overflow-y-auto ring-1 ring-primary/20">
+                    <div className="p-1">
+                      {products?.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase())).map(product => (
+                        <button
+                          key={product.id}
+                          className="w-full text-left p-3 hover:bg-primary/10 rounded-md transition-colors flex justify-between items-center text-sm border-b border-border/30 last:border-0"
+                          onClick={() => {
+                            const existing = selectedProducts.find(p => p.id === product.id);
+                            if (existing) {
+                              setSelectedProducts(selectedProducts.map(p => p.id === product.id ? { ...p, quantity: p.quantity + 1 } : p));
+                            } else {
+                              setSelectedProducts([...selectedProducts, { id: product.id, name: product.name, quantity: 1, unit_price: product.sale_price }]);
+                            }
+                            setProductSearch('');
+                            // Auto-update payment if only one
+                            if (salePayments.length === 1) {
+                              const newTotal = (totalProducts + parseFloat(product.sale_price)) - (parseFloat(unmaskCurrency(saleDiscount)) || 0);
+                              setSalePayments([{ ...salePayments[0], amount: newTotal.toFixed(2).replace('.', ',') }]);
+                            }
+                          }}
+                        >
+                          <div>
+                            <div className="font-bold">{product.name}</div>
+                            <div className="text-[10px] text-muted-foreground">{product.stock_quantity} em estoque</div>
+                          </div>
+                          <span className="text-primary font-black">{formatCurrency(product.sale_price)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </Card>
+                )}
+              </div>
+
+              <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1">
+                {selectedProducts.map((p, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-primary/5 border border-primary/10 text-sm">
+                    <div className="flex-1 min-w-0 pr-2">
+                      <div className="font-bold truncate">{p.name}</div>
+                      <div className="text-[10px] text-primary font-bold uppercase">{formatCurrency(p.unit_price)} / un</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center border border-border/50 rounded-lg bg-background overflow-hidden h-9 shadow-sm">
+                        <button
+                          className="px-3 hover:bg-primary/10 text-muted-foreground transition-colors"
+                          onClick={() => {
+                            const newQty = p.quantity - 1;
+                            if (newQty > 0) {
+                              setSelectedProducts(selectedProducts.map((prod, i) => i === idx ? { ...prod, quantity: newQty } : prod));
+                            } else {
+                              setSelectedProducts(selectedProducts.filter((_, i) => i !== idx));
+                            }
+                          }}
+                        >
+                          -
+                        </button>
+                        <span className="px-2 font-black min-w-[24px] text-center">{p.quantity}</span>
+                        <button
+                          className="px-3 hover:bg-primary/10 text-muted-foreground transition-colors"
+                          onClick={() => setSelectedProducts(selectedProducts.map((prod, i) => i === idx ? { ...prod, quantity: prod.quantity + 1 } : prod))}
+                        >
+                          +
+                        </button>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 text-destructive hover:bg-destructive/10"
+                        onClick={() => setSelectedProducts(selectedProducts.filter((_, i) => i !== idx))}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                {selectedProducts.length === 0 && (
+                  <div className="text-center py-12 text-muted-foreground text-xs italic border-2 border-dashed rounded-2xl flex flex-col items-center gap-2 opacity-60">
+                    <ShoppingCart className="w-8 h-8 mb-1" />
+                    Nenhum produto selecionado
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Sale Payments Side */}
+            <div className="space-y-4">
+              <h3 className="font-bold text-sm flex items-center gap-2 text-green-500 uppercase tracking-wider">
+                <DollarSign className="w-4 h-4" /> Pagamento da Venda
+              </h3>
+
+              <div className="space-y-2 p-4 rounded-2xl bg-muted/40 border border-border/50 shadow-inner">
+                <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-tighter opacity-70">
+                  <span>Subtotal:</span>
+                  <span>{formatCurrency(totalProducts)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground text-xs font-bold uppercase tracking-tighter">Desconto:</span>
+                  <div className="w-24 relative">
+                    <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                    <Input
+                      type="text"
+                      className="pl-6 bg-background border-border/50 h-8 rounded-lg text-right font-bold text-xs"
+                      value={saleDiscount}
+                      onChange={(e) => {
+                        const val = maskCurrency(e.target.value);
+                        setSaleDiscount(val);
+                        if (salePayments.length === 1) {
+                          const newTotal = totalProducts - (parseFloat(unmaskCurrency(val)) || 0);
+                          setSalePayments([{ ...salePayments[0], amount: newTotal.toFixed(2).replace('.', ',') }]);
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-between items-center pt-2 border-t border-border/20">
+                  <span className="text-muted-foreground text-xs font-bold uppercase tracking-tighter">Total à Pagar:</span>
+                  <span className="font-black text-2xl text-primary">{formatCurrency(totalProducts - (parseFloat(unmaskCurrency(saleDiscount)) || 0))}</span>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {salePayments.map((payment, index) => (
+                  <div key={index} className="flex gap-2 items-center group">
+                    <div className="flex-1">
+                      <Select
+                        value={payment.method}
+                        onValueChange={(val) => {
+                          const newP = [...salePayments];
+                          newP[index].method = val;
+                          setSalePayments(newP);
+                        }}
+                      >
+                        <SelectTrigger className="bg-background border-border/50 h-11 rounded-xl group-hover:border-primary/30 transition-colors">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-card border-border">
+                          <SelectItem value="pix">PIX</SelectItem>
+                          <SelectItem value="cash">Dinheiro</SelectItem>
+                          <SelectItem value="credit">Cartão de Crédito</SelectItem>
+                          <SelectItem value="debit">Cartão de Débito</SelectItem>
+                          {customMethods?.filter(m => m.is_active).map(m => (
+                            <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="w-32 relative">
+                      <Input
+                        type="date"
+                        className="bg-background border-border/50 h-11 px-2 text-xs rounded-xl"
+                        value={payment.payment_date || format(new Date(), 'yyyy-MM-dd')}
+                        onChange={(e) => {
+                          const newP = [...salePayments];
+                          newP[index].payment_date = e.target.value;
+                          setSalePayments(newP);
+                        }}
+                      />
+                    </div>
+                    <div className="w-32 relative">
+                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                      <Input
+                        type="text"
+                        className="pl-8 bg-background border-border/50 h-11 rounded-xl font-bold"
+                        value={payment.amount}
+                        onChange={(e) => {
+                          const newP = [...salePayments];
+                          newP[index].amount = maskCurrency(e.target.value);
+                          setSalePayments(newP);
+                        }}
+                      />
+                    </div>
+                    {salePayments.length > 1 && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive h-11 w-11 shrink-0 hover:bg-destructive/10"
+                        onClick={() => setSalePayments(salePayments.filter((_, i) => i !== index))}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full h-11 gap-2 border-dashed text-xs font-bold bg-background/50"
+                  onClick={() => {
+                    const remaining = totalProducts - totalSalePaid;
+                    setSalePayments([...salePayments, { method: 'cash', amount: remaining > 0 ? remaining.toFixed(2).replace('.', ',') : '0,00', payment_date: format(new Date(), 'yyyy-MM-dd') }]);
+                  }}
+                >
+                  <Plus className="w-3.5 h-3.5" /> Adicionar Outra Forma
+                </Button>
+              </div>
+
+              <div className={`p-4 rounded-xl flex justify-between items-center transition-colors ${isSaleTotalValid ? 'bg-green-500/10 text-green-500 border border-green-500/20' : isSaleExceeding ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20'}`}>
+                <div className="flex flex-col">
+                  <span className="text-[9px] font-black uppercase tracking-widest opacity-70">Total Recebido</span>
+                  <span className="font-black text-xl leading-none">{formatCurrency(totalSalePaid)}</span>
+                  {!isSaleTotalValid && !isSaleExceeding && remainingSaleDebt > 0.01 && (
+                    <span className="text-[10px] font-bold mt-1 opacity-80">Faltam {formatCurrency(remainingSaleDebt)} — será registrado como fiado</span>
+                  )}
+                </div>
+                {isSaleExceeding && totalProducts > 0 && (
+                  <div className="text-[10px] font-bold text-right italic leading-tight">
+                    Excede {formatCurrency(totalSalePaid - expectedSaleTotal)}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="border-t border-border/50 pt-4 mt-2">
+            <Button variant="ghost" onClick={() => {
+              setShowProductSaleModal(false);
+              setActiveAppointment(null);
+              setIsEditingSale(false);
+            }}>
+              Cancelar
+            </Button>
+            <Button
+              className="px-10 font-black h-12 shadow-xl shadow-primary/20"
+              disabled={selectedProducts.length === 0 || isSaleExceeding || createSaleMutation.isPending || updateAssociatedSaleMutation.isPending}
+              onClick={() => {
+                if (!isSaleTotalValid && remainingSaleDebt > 0.01) {
+                  setShowSaleFiadoConfirm(true);
+                } else {
+                  if (isEditingSale && activeAppointment?.id) {
+                    updateAssociatedSaleMutation.mutate({
+                      appointmentId: activeAppointment.id,
+                      data: {
+                        products: selectedProducts,
+                        payments: salePayments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })),
+                        discount: unmaskCurrency(saleDiscount) || '0'
+                      }
+                    });
+                  } else {
+                    createSaleMutation.mutate({
+                      appointment: activeAppointment?.id,
+                      client: activeAppointment?.client,
+                      products: selectedProducts,
+                      payments: salePayments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })),
+                      discount: unmaskCurrency(saleDiscount) || '0'
+                    });
+                  }
+                }
+              }}
+            >
+              {(createSaleMutation.isPending || updateAssociatedSaleMutation.isPending) && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              {isEditingSale ? 'Salvar Venda' : 'Registrar Venda'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* New Appointment Modal */}
+      <Dialog open={showNewAppointmentModal} onOpenChange={setShowNewAppointmentModal}>
+        <DialogContent className="bg-card border-border sm:max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Novo Agendamento</DialogTitle>
+            <DialogDescription>
+              Agende um horário para um cliente na data: <strong>{format(selectedDate, "dd/MM/yyyy")}</strong>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            {/* Client Selection */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Cliente</label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-[10px] text-primary gap-1 font-bold"
+                  onClick={() => setShowQuickCreateClient(true)}
+                >
+                  <Plus className="w-3 h-3" /> NOVO CLIENTE
+                </Button>
+              </div>
+
+              <Popover open={isClientPopoverOpen} onOpenChange={setIsClientPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={isClientPopoverOpen}
+                    className="w-full justify-between bg-background border-border/50 font-normal"
+                  >
+                    {newAppClient
+                      ? `${newAppClient.first_name || newAppClient.username} (${newAppClient.phone || 'Sem fone'})`
+                      : "Selecionar cliente..."}
+                    <MoreVertical className="ml-2 h-4 w-4 shrink-0 opacity-50 rotate-90" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent side="bottom" align="start" sideOffset={4} avoidCollisions={false} className="w-[var(--radix-popover-trigger-width)] p-0 bg-card border-border shadow-2xl">
+                  <div className="flex items-center border-b border-border/50 px-3 py-2">
+                    <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                    <input
+                      className="flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                      placeholder="Pesquisar cliente..."
+                      value={clientSearch}
+                      onChange={(e) => setClientSearch(e.target.value)}
+                    />
+                  </div>
+                  <div className="max-h-[300px] overflow-y-auto py-1">
+                    {clients?.filter(c =>
+                      (c.first_name || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
+                      (c.username || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
+                      (c.phone || '').includes(clientSearch)
+                    ).length === 0 && (
+                        <div className="py-6 text-center text-sm text-muted-foreground">
+                          Nenhum cliente encontrado.
+                        </div>
+                      )}
+                    {clients?.filter(c =>
+                      (c.first_name || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
+                      (c.username || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
+                      (c.phone || '').includes(clientSearch)
+                    ).map((client) => (
+                      <div
+                        key={client.id}
+                        className={cn(
+                          "relative flex cursor-pointer select-none items-center rounded-sm px-3 py-2.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+                          newAppClient?.id === client.id && "bg-accent"
+                        )}
+                        onClick={() => {
+                          setNewAppClient(client);
+                          setIsClientPopoverOpen(false);
+                          setClientSearch('');
+                        }}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            newAppClient?.id === client.id ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                        <div className="flex flex-col">
+                          <span className="font-medium">{client.first_name || client.username}</span>
+                          <span className="text-[10px] text-muted-foreground">{client.phone || 'Sem fone'}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* Service Selection */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Serviço(s)</label>
+              <Popover open={isServicePopoverOpen} onOpenChange={setIsServicePopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={isServicePopoverOpen}
+                    className="w-full justify-between bg-background border-border/50 font-normal"
+                  >
+                    {newAppServices.length > 0
+                      ? `${newAppServices.length} ${newAppServices.length === 1 ? 'serviço selecionado' : 'serviços selecionados'}`
+                      : "Selecione o(s) Serviço(s)"}
+                    <MoreVertical className="ml-2 h-4 w-4 shrink-0 opacity-50 rotate-90" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent side="bottom" align="start" sideOffset={4} avoidCollisions={false} className="w-[var(--radix-popover-trigger-width)] p-0 bg-card border-border shadow-2xl">
+                  <div className="max-h-[300px] overflow-y-auto py-1">
+                    {services?.map(service => {
+                      const isSelected = newAppServices.some(s => s.id === service.id);
+                      return (
+                        <div
+                          key={service.id}
+                          className={cn(
+                            "relative flex cursor-pointer select-none items-center justify-between rounded-sm px-3 py-2.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
+                            isSelected && "bg-accent"
+                          )}
+                          onClick={() => {
+                            if (isSelected) {
+                              setNewAppServices(newAppServices.filter(s => s.id !== service.id));
+                            } else {
+                              setNewAppServices([...newAppServices, service]);
+                            }
+                          }}
+                        >
+                          <div className="flex items-center">
+                            <Check className={cn("mr-2 h-4 w-4 shrink-0", isSelected ? "opacity-100" : "opacity-0")} />
+                            <span>{service.name}</span>
+                          </div>
+                          <span className="text-xs text-muted-foreground shrink-0 ml-2">{formatCurrency(service.price)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
+              {newAppServices.length > 0 && (
+                <p className="text-[11px] text-muted-foreground pl-1">
+                  Total: {formatCurrency(newAppServices.reduce((a, b) => a + Number(b.price), 0))} • {newAppServices.reduce((a, b) => a + b.duration_minutes, 0)} min
+                </p>
+              )}
+            </div>
+
+            {/* Barber Selection */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Profissional</label>
+              <Select
+                value={newAppBarber?.id?.toString()}
+                onValueChange={(val) => setNewAppBarber(barbers?.find(b => b.id.toString() === val))}
+              >
+                <SelectTrigger className="bg-background border-border/50">
+                  <SelectValue placeholder="Selecione a profissional" />
+                </SelectTrigger>
+                <SelectContent className="bg-card border-border">
+                  {barbers?.map(barber => (
+                    <SelectItem key={barber.id} value={barber.id.toString()}>
+                      {barber.first_name || barber.username}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Time Selection */}
+            {newAppBarber && newAppServices.length > 0 && (
+              <div className="space-y-3">
+                <label className="text-sm font-medium">Horários Disponíveis</label>
+                {isLoadingTimes ? (
+                  <div className="text-center py-4 text-xs italic">Consultando agenda...</div>
+                ) : availableTimes?.length === 0 ? (
+                  <div className="text-center py-4 text-xs text-destructive bg-destructive/10 rounded-lg">
+                    Nenhum horário disponível para este profissional nesta data.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-4 gap-2">
+                    {availableTimes?.map((time: string) => (
+                      <Button
+                        key={time}
+                        variant={newAppTime === time ? "default" : "outline"}
+                        size="sm"
+                        className="text-xs"
+                        onClick={() => setNewAppTime(time)}
+                      >
+                        {time}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Notes */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Observações (Opcional)</label>
+              <Textarea
+                placeholder="Ex: Cliente prefere tal estilo..."
+                value={newAppNotes}
+                onChange={(e) => setNewAppNotes(e.target.value)}
+                className="bg-background border-border/50 min-h-[80px]"
+              />
+            </div>
+
+            {/* Recurrence Section */}
+            {newAppTime && (
+              <div className="space-y-3 p-4 bg-primary/5 rounded-xl border border-primary/20 transition-all">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <RefreshCw className="w-5 h-5 text-primary" />
+                    <Label className="font-semibold text-primary text-base cursor-pointer" onClick={() => setIsRecurring(!isRecurring)}>Agendamento Recorrente?</Label>
+                  </div>
+                  <Switch
+                    checked={isRecurring}
+                    onCheckedChange={setIsRecurring}
+                  />
+                </div>
+
+                {isRecurring && (
+                  <div className="pt-4 border-t border-primary/10 grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">Frequência</Label>
+                      <Select value={recurrenceType} onValueChange={setRecurrenceType}>
+                        <SelectTrigger className="h-9 text-sm bg-background">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="daily">Todos os dias</SelectItem>
+                          <SelectItem value="weekly">Semanal (Toda semana)</SelectItem>
+                          <SelectItem value="biweekly">A cada 2 semanas (Pula 1 semana)</SelectItem>
+                          <SelectItem value="triweekly">A cada 3 semanas (Pula 2 semanas)</SelectItem>
+                          <SelectItem value="quadweekly">A cada 4 semanas (Mantém dia da semana)</SelectItem>
+                          <SelectItem value="monthly">Mensal (Muda dia da semana)</SelectItem>
+                          <SelectItem value="custom">Personalizado (Calendário)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {recurrenceType === 'custom' ? (
+                      <div className="col-span-2 space-y-2 border-t border-primary/10 pt-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <Label className="text-xs font-semibold">Clique nas datas desejadas:</Label>
+                          <Badge variant="outline" className="text-[10px] py-0 h-5 text-muted-foreground border-dashed">
+                            Cinza = Indisponível
+                          </Badge>
+                        </div>
+                        <div className="bg-background rounded-lg border border-border/50 p-2 flex justify-center">
+                          <Calendar
+                            mode="multiple"
+                            selected={customDates}
+                            onSelect={(dates) => setCustomDates(dates || [])}
+                            disabled={(date) => {
+                              const dStr = format(date, 'yyyy-MM-dd');
+                              // Check if date is in the past
+                              if (date < new Date(new Date().setHours(0, 0, 0, 0))) return true;
+                              return unavailableDates.includes(dStr);
+                            }}
+                            onDayClick={(day) => {
+                              // Trigger availability check for the month or a range when user interacts
+                              const start = new Date(day.getFullYear(), day.getMonth(), 1);
+                              const end = new Date(day.getFullYear(), day.getMonth() + 1, 0);
+                              const daysInMonth = [];
+                              for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                                daysInMonth.push(new Date(d));
+                              }
+                              checkDatesAvailability(daysInMonth);
+                            }}
+                            className="p-0"
+                            locale={ptBR}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <Label className="text-xs font-semibold">Total de vezes</Label>
+                        <Select value={recurrenceCount.toString()} onValueChange={(v) => setRecurrenceCount(parseInt(v))}>
+                          <SelectTrigger className="h-9 text-sm bg-background">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {[2, 3, 4, 5, 6, 8, 10, 12, 24, 36, 48, 52, 100].map(num => (
+                              <SelectItem key={num} value={num.toString()}>{num} vezes</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                    <div className="col-span-2 mt-2 bg-background/50 p-3 rounded-lg border border-border/50">
+                      <Label className="text-xs text-muted-foreground mb-2 block">
+                        {recurrenceType === 'custom' ? `Agendamentos para estas ${customDates.length} datas:` : 'Pré-visualização das datas:'}
+                      </Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {getRecurrenceDates().map((date, idx) => (
+                          <Badge key={idx} variant="secondary" className="text-xs font-medium bg-primary/10 text-primary border-none hover:bg-primary/20">
+                            {format(date, "dd/MM")}
+                          </Badge>
+                        ))}
+                        {recurrenceType === 'custom' && customDates.length === 0 && (
+                          <span className="text-[10px] italic text-muted-foreground">Nenhuma data selecionada no calendário acima.</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNewAppointmentModal(false)}>Cancelar</Button>
+            <Button
+              disabled={!newAppClient || newAppServices.length === 0 || !newAppBarber || !newAppTime || createAppointmentMutation.isPending}
+              onClick={() => createAppointmentMutation.mutate()}
+            >
+              {createAppointmentMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Criar Agendamento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Create Client Modal */}
+      <Dialog open={showQuickCreateClient} onOpenChange={setShowQuickCreateClient}>
+        <DialogContent className="bg-card border-border sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cadastrar Novo Cliente</DialogTitle>
+            <DialogDescription>
+              Preencha os dados básicos para o agendamento.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            <div className="space-y-2">
+              <Label>Nome Completo</Label>
+              <Input
+                placeholder="Ex: João Silva"
+                className="bg-background border-border/50 h-11"
+                value={quickClient.name}
+                onChange={(e) => setQuickClient({ ...quickClient, name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>WhatsApp</Label>
+              <Input
+                placeholder="(00) 00000-0000"
+                className="bg-background border-border/50 h-11"
+                value={quickClient.phone}
+                onChange={(e) => setQuickClient({ ...quickClient, phone: maskPhone(e.target.value) })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="flex justify-between">
+                Data de Nascimento
+                <span className="text-[10px] text-muted-foreground uppercase font-bold">Opcional</span>
+              </Label>
+              <Input
+                placeholder="DD/MM/AAAA"
+                className="bg-background border-border/50 h-11"
+                value={quickClient.birth_date}
+                onChange={(e) => setQuickClient({ ...quickClient, birth_date: maskDate(e.target.value) })}
+                inputMode="numeric"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowQuickCreateClient(false)}>Cancelar</Button>
+            <Button
+              disabled={!quickClient.name || !quickClient.phone || createClientMutation.isPending}
+              onClick={() => createClientMutation.mutate(quickClient)}
+            >
+              {createClientMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Cadastrar e Selecionar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Time Block Modal */}
+      <Dialog open={showBlockModal} onOpenChange={setShowBlockModal}>
+        <DialogContent className="bg-card border-border sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Bloquear Horários</DialogTitle>
+            <DialogDescription>
+              Selecione os horários que deseja bloquear em <strong>{format(selectedDate, "dd/MM/yyyy")}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            {me?.role === 'admin' && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Profissional</label>
+                <Select
+                  value={blockBarber?.id?.toString()}
+                  onValueChange={(val) => {
+                    const b = barbers?.find(b => b.id.toString() === val);
+                    setBlockBarber(b);
+                  }}
+                >
+                  <SelectTrigger className="bg-background border-border/50">
+                    <SelectValue placeholder="Selecione a profissional" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-card border-border">
+                    {barbers?.map(barber => (
+                      <SelectItem key={barber.id} value={barber.id.toString()}>
+                        {barber.first_name || barber.username}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Motivo do Bloqueio</label>
+              <Input
+                placeholder="Ex: Intervalo, Almoço, Compromisso..."
+                value={blockReason}
+                onChange={(e) => setBlockReason(e.target.value)}
+                className="bg-background border-border/50"
+              />
+            </div>
+
+            <div className="space-y-4">
+              <label className="text-sm font-medium block">Horários Disponíveis</label>
+              {!blockBarber ? (
+                <div className="text-center py-8 text-muted-foreground bg-muted/10 rounded-xl border-2 border-dashed">
+                  Selecione um profissional para ver os horários.
+                </div>
+              ) : (
+                <TimeSlotsGrid
+                  barberId={blockBarber.id}
+                  date={selectedDate}
+                  onSelectTime={(time) => createBlockMutation.mutate(time)}
+                  isLoading={createBlockMutation.isPending}
+                />
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBlockModal(false)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Walk-In Modal */}
+      <Dialog 
+        open={showWalkInModal} 
+        onOpenChange={(open) => {
+          setShowWalkInModal(open);
+          if (!open && pendingWaitlistEntryId) {
+            setPendingWaitlistEntryId(null);
+          }
+        }}
+      >
+        <DialogContent className="bg-card border-border sm:max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Registro de Atendimento Avulso</DialogTitle>
+            <DialogDescription>
+              Registre um cliente que chegou de repente e você não tinha agendado
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* Client Selection */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Cliente *</label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-[10px] text-primary gap-1 font-bold"
+                  onClick={() => setShowQuickCreateClient(true)}
+                >
+                  <Plus className="w-3 h-3" /> NOVO CLIENTE
+                </Button>
+              </div>
+
+              <Popover open={isWalkInClientPopoverOpen} onOpenChange={setIsWalkInClientPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={isWalkInClientPopoverOpen}
+                    className="w-full justify-between bg-background border-border/50 font-normal"
+                  >
+                    {walkInClient
+                      ? `${walkInClient.first_name || walkInClient.username} (${walkInClient.phone || 'Sem fone'})`
+                      : "Selecionar cliente..."}
+                    <MoreVertical className="ml-2 h-4 w-4 shrink-0 opacity-50 rotate-90" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent side="bottom" align="start" sideOffset={4} avoidCollisions={false} className="w-[var(--radix-popover-trigger-width)] p-0 bg-card border-border shadow-2xl z-50">
+                  <div className="flex items-center border-b border-border/50 px-3 py-2">
+                    <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                    <input
+                      className="flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                      placeholder="Pesquisar cliente..."
+                      value={clientSearch}
+                      onChange={(e) => setClientSearch(e.target.value)}
+                    />
+                  </div>
+                  <div className="max-h-[300px] overflow-y-auto py-1">
+                    {clients?.filter(c =>
+                      (c.first_name || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
+                      (c.username || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
+                      (c.phone || '').includes(clientSearch)
+                    ).length === 0 && (
+                        <div className="py-6 text-center text-sm text-muted-foreground">
+                          Nenhum cliente encontrado.
+                        </div>
+                      )}
+                    {clients?.filter(c =>
+                      (c.first_name || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
+                      (c.username || '').toLowerCase().includes(clientSearch.toLowerCase()) ||
+                      (c.phone || '').includes(clientSearch)
+                    ).map((client) => (
+                      <div
+                        key={client.id}
+                        className={cn(
+                          "relative flex cursor-pointer select-none items-center rounded-sm px-3 py-2.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+                          walkInClient?.id === client.id && "bg-accent"
+                        )}
+                        onClick={() => {
+                          setWalkInClient(client);
+                          setIsWalkInClientPopoverOpen(false);
+                          setClientSearch('');
+                        }}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            walkInClient?.id === client.id ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                        <div className="flex flex-col">
+                          <span className="font-medium">{client.first_name || client.username}</span>
+                          <span className="text-[10px] text-muted-foreground">{client.phone || 'Sem fone'}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Serviço(s) *</Label>
+              <Popover open={isWalkInServicePopoverOpen} onOpenChange={setIsWalkInServicePopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={isWalkInServicePopoverOpen}
+                    className="w-full justify-between bg-background border-border/50 font-normal"
+                  >
+                    {walkInServices.length > 0
+                      ? `${walkInServices.length} ${walkInServices.length === 1 ? 'serviço selecionado' : 'serviços selecionados'}`
+                      : "Selecione o(s) serviço(s)"}
+                    <MoreVertical className="ml-2 h-4 w-4 shrink-0 opacity-50 rotate-90" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent side="bottom" align="start" sideOffset={4} avoidCollisions={false} className="w-[var(--radix-popover-trigger-width)] p-0 bg-card border-border shadow-2xl">
+                  <div className="max-h-[300px] overflow-y-auto py-1">
+                    {services?.map(s => {
+                      const isSelected = walkInServices.some(sv => sv.id === s.id);
+                      return (
+                        <div
+                          key={s.id}
+                          className={cn(
+                            "relative flex cursor-pointer select-none items-center justify-between rounded-sm px-3 py-2.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
+                            isSelected && "bg-accent"
+                          )}
+                          onClick={() => {
+                            if (isSelected) {
+                              setWalkInServices(walkInServices.filter(sv => sv.id !== s.id));
+                            } else {
+                              setWalkInServices([...walkInServices, s]);
+                            }
+                          }}
+                        >
+                          <div className="flex items-center">
+                            <Check className={cn("mr-2 h-4 w-4 shrink-0", isSelected ? "opacity-100" : "opacity-0")} />
+                            <span>{s.name}</span>
+                          </div>
+                          <span className="text-xs text-muted-foreground shrink-0 ml-2">{formatCurrency(s.price)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Horário do Atendimento *</Label>
+              <div className="relative">
+                <Input
+                  placeholder="HH:mm (Ex: 14:30)"
+                  className="bg-background border-border/50 h-11 text-center text-lg font-bold"
+                  value={walkInTime}
+                  onChange={(e) => setWalkInTime(maskTime(e.target.value))}
+                  inputMode="numeric"
+                />
+                {walkInServices.length > 0 && walkInTime.length === 5 && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-medium uppercase">
+                    Duração: {walkInServices.reduce((a,b)=>a+b.duration_minutes,0)} min
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Profissional *</Label>
+              <Select
+                value={walkInBarber?.id?.toString() || ''}
+                onValueChange={(val) => {
+                  const b = barbers?.find(x => x.id.toString() === val);
+                  if (b) setWalkInBarber(b);
+                }}
+              >
+                <SelectTrigger className="bg-background border-border/50">
+                  <SelectValue placeholder="Selecione a profissional" />
+                </SelectTrigger>
+                <SelectContent className="bg-card border-border">
+                  {barbers?.map(b => (
+                    <SelectItem key={b.id} value={b.id.toString()}>{b.first_name || b.username}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {walkInServices.length > 0 && (
+              <div className="flex justify-between items-center bg-background/50 p-4 rounded-xl border border-border/50">
+                <span className="text-sm font-medium">Total</span>
+                <div className="text-right">
+                  <span className="font-bold text-lg">{formatCurrency(walkInServices.reduce((a,b)=>a+Number(b.price),0))}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowWalkInModal(false)}>Cancelar</Button>
+            <Button
+              className="px-6 font-bold"
+              disabled={!isWalkInValid || !walkInTime || createWalkInMutation.isPending}
+              onClick={() => createWalkInMutation.mutate()}
+            >
+              {createWalkInMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Confirmar encaixe
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Fiado Confirmation - Appointment */}
+      <AlertDialog open={showFiadoConfirm} onOpenChange={setShowFiadoConfirm}>
+        <AlertDialogContent className="bg-card border-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <DollarSign className="w-5 h-5 text-yellow-500" />
+              Pagamento Incompleto
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  O cliente <strong className="text-foreground">{activeAppointment?.client_name}</strong> pagou{' '}
+                  <strong className="text-foreground">{formatCurrency(totalPaid)}</strong> de um total de{' '}
+                  <strong className="text-foreground">{formatCurrency(expectedTotal)}</strong>.
+                </p>
+                <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex justify-between items-center">
+                  <span className="text-sm font-medium">Valor restante (fiado):</span>
+                  <span className="font-black text-lg">{formatCurrency(remainingDebt)}</span>
+                </div>
+                <p className="text-xs opacity-70">
+                  O valor restante será registrado como débito do cliente e poderá ser cobrado posteriormente.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-yellow-600 hover:bg-yellow-700 text-white font-bold"
+              onClick={() => {
+                if (!activeAppointment) return;
+                completeWithPaymentsMutation.mutate({
+                  id: activeAppointment.id,
+                  payments,
+                  discount: completeDiscount || '0',
+                  tip: completeTip || '0'
+                });
+              }}
+            >
+              Confirmar e Finalizar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Fiado Confirmation - Product Sale */}
+      <AlertDialog open={showSaleFiadoConfirm} onOpenChange={setShowSaleFiadoConfirm}>
+        <AlertDialogContent className="bg-card border-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <ShoppingCart className="w-5 h-5 text-yellow-500" />
+              Pagamento Incompleto da Venda
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  O cliente <strong className="text-foreground">{activeAppointment?.client_name || 'Cliente'}</strong> pagou{' '}
+                  <strong className="text-foreground">{formatCurrency(totalSalePaid)}</strong> de um total de{' '}
+                  <strong className="text-foreground">{formatCurrency(expectedSaleTotal)}</strong>.
+                </p>
+                <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex justify-between items-center">
+                  <span className="text-sm font-medium">Valor restante (fiado):</span>
+                  <span className="font-black text-lg">{formatCurrency(remainingSaleDebt)}</span>
+                </div>
+                <p className="text-xs opacity-70">
+                  O valor restante será registrado como débito do cliente e poderá ser cobrado posteriormente.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-yellow-600 hover:bg-yellow-700 text-white font-bold"
+              onClick={() => {
+                if (isEditingSale && activeAppointment?.id) {
+                  updateAssociatedSaleMutation.mutate({
+                    appointmentId: activeAppointment.id,
+                    data: {
+                      products: selectedProducts,
+                      payments: salePayments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })),
+                      discount: unmaskCurrency(saleDiscount) || '0'
+                    }
+                  });
+                } else {
+                  createSaleMutation.mutate({
+                    appointment: activeAppointment?.id,
+                    client: activeAppointment?.client,
+                    products: selectedProducts,
+                    payments: salePayments.map(p => ({ ...p, amount: unmaskCurrency(p.amount) })),
+                    discount: unmaskCurrency(saleDiscount) || '0'
+                  });
+                }
+              }}
+            >
+              {isEditingSale ? 'Confirmar e Salvar Venda' : 'Confirmar e Registrar Venda'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* No-Show Confirmation */}
+      <AlertDialog open={showNoShowConfirm} onOpenChange={setShowNoShowConfirm}>
+        <AlertDialogContent className="bg-card border-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Marcar como Faltoso?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Deseja realmente marcar <strong className="text-foreground">{editingAppointment?.client_name}</strong> como faltoso neste agendamento?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-gray-600 hover:bg-gray-700 text-white font-bold"
+              onClick={() => {
+                if (editingAppointment) {
+                  updateStatusMutation.mutate({ id: editingAppointment.id, status: 'no_show' });
+                  setShowEditAppointmentModal(false);
+                }
+              }}
+            >
+              Confirmar Falta
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Cancel (non-completed) Confirmation */}
+      <AlertDialog open={showCancelConfirm} onOpenChange={setShowCancelConfirm}>
+        <AlertDialogContent className="bg-card border-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancelar Agendamento?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                Deseja realmente cancelar o agendamento de <strong className="text-foreground">{editingAppointment?.client_name}</strong>?
+                {editingAppointment?.notes?.includes('Recorrente') && (
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    Este agendamento faz parte de uma série recorrente. Você pode cancelar apenas este horário ou toda a série a partir desta data.
+                  </p>
+                )}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <AlertDialogCancel className="w-full sm:w-auto">Voltar</AlertDialogCancel>
+              {editingAppointment?.notes?.includes('Recorrente') && (
+                <AlertDialogAction
+                  className="w-full sm:w-auto bg-yellow-600 hover:bg-yellow-700 text-white font-bold"
+                  onClick={() => {
+                    if (editingAppointment) {
+                      cancelRecurringMutation.mutate(editingAppointment.id);
+                      setShowCancelConfirm(false);
+                    }
+                  }}
+                >
+                  Cancelar Toda a Série
+                </AlertDialogAction>
+              )}
+              <AlertDialogAction
+                className="w-full sm:w-auto bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold"
+                onClick={() => {
+                  if (editingAppointment) {
+                    updateStatusMutation.mutate({ id: editingAppointment.id, status: 'cancelled' });
+                    setShowEditAppointmentModal(false);
+                    setShowCancelConfirm(false);
+                  }
+                }}
+              >
+                Confirmar Cancelamento
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+      {/* Cancel Completed Appointment Confirmation */}
+      <AlertDialog open={showCancelCompletedConfirm} onOpenChange={setShowCancelCompletedConfirm}>
+        <AlertDialogContent className="bg-card border-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="w-5 h-5" />
+              Cancelar Agendamento Concluído?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  Tem certeza que deseja cancelar o agendamento concluído de{' '}
+                  <strong className="text-foreground">{editingAppointment?.client_name}</strong>?
+                </p>
+                <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm space-y-1">
+                  <p className="font-bold">Esta ação irá:</p>
+                  <ul className="list-disc list-inside text-xs space-y-0.5">
+                    <li>Remover todos os pagamentos registrados</li>
+                    <li>Reverter vendas de produtos associadas (estoque restaurado)</li>
+                    <li>Cancelar quaisquer débitos pendentes</li>
+                  </ul>
+                </div>
+                <p className="text-xs opacity-70">
+                  Esta ação não pode ser desfeita.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold"
+              disabled={cancelCompletedMutation.isPending}
+              onClick={() => {
+                if (editingAppointment) {
+                  cancelCompletedMutation.mutate(editingAppointment.id);
+                }
+              }}
+            >
+              {cancelCompletedMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Sim, Cancelar Tudo
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Remove Block Confirmation */}
+      <AlertDialog open={showRemoveBlockConfirm} onOpenChange={setShowRemoveBlockConfirm}>
+        <AlertDialogContent className="bg-card border-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover Bloqueio?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Deseja realmente remover este bloqueio de horário?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold"
+              onClick={() => {
+                if (blockToRemove) {
+                  deleteBlockMutation.mutate(blockToRemove);
+                  setBlockToRemove(null);
+                }
+              }}
+            >
+              Remover
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+    </div>
+  );
+}
+
+// Helper component to show the grid of available times for blocking
+function TimeSlotsGrid({ barberId, date, onSelectTime, isLoading }: { barberId: number, date: Date, onSelectTime: (t: string) => void, isLoading: boolean }) {
+  const { data: times, isLoading: loadingTimes } = useQuery({
+    queryKey: ['available-times-block', barberId, format(date, 'yyyy-MM-dd')],
+    queryFn: async () => {
+      const dateStr = format(date, 'yyyy-MM-dd');
+      // Using a generic service check or assuming 30min slots for blocking
+      const res = await api.get<string[]>(`/users/${barberId}/available_times/?date=${dateStr}`);
+      return res.data;
+    },
+  });
+
+  if (loadingTimes) return <div className="text-center py-8 italic text-muted-foreground">Carregando horários...</div>;
+  if (!times || times.length === 0) return <div className="text-center py-8 text-muted-foreground">Sem horários disponíveis para bloquear nesta data.</div>;
+
+  return (
+    <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+      {times.map(time => (
+        <Button
+          key={time}
+          variant="outline"
+          size="sm"
+          className="font-bold hover:bg-destructive hover:text-destructive-foreground hover:border-destructive transition-all"
+          disabled={isLoading}
+          onClick={() => onSelectTime(time)}
+        >
+          {time}
+        </Button>
+      ))}
+    </div>
+  );
+}
