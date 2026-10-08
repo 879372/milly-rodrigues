@@ -768,7 +768,9 @@ export default function BookingPortal() {
                       })}
                     </div>
                     <div className="flex flex-col items-center gap-2 pt-4 border-t border-border/50">
-                      <p className="text-xs text-muted-foreground">Não encontrou o horário que queria?</p>
+                      <p className="max-w-md text-center text-xs leading-relaxed text-muted-foreground">
+                        Não encontrou o horário desejado? Entre na fila de espera ou selecione outra data no calendário.
+                      </p>
                       <div className="w-full sm:w-auto">
                         <Button
                           size="sm"
