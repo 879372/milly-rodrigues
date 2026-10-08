@@ -48,7 +48,7 @@ export default function BookingPortal() {
   // Booking State
   const [selectedServices, setSelectedServices] = useState<Service[]>([]);
   const [selectedBarber, setSelectedBarber] = useState<Barber | null>(null);
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>();
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(() => new Date());
   const [selectedTime, setSelectedTime] = useState<string>('');
   
   // Form State
@@ -723,22 +723,13 @@ export default function BookingPortal() {
                     <div className="text-center py-8 text-sm text-muted-foreground bg-primary/5 rounded-2xl border-2 border-dashed border-primary/10 space-y-3">
                       <p>
                         Poxa! Nenhum horário disponível nesta data. 😕<br/>
-                        <span className="text-[10px] font-medium">Tente outro dia ou entre na fila de espera.</span>
+                        <span className="text-[10px] font-medium">Selecione outra data no calendário ou entre na fila de espera.</span>
                       </p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="gap-2"
-                        onClick={() => setStep(3)}
-                      >
-                        <CalendarIcon className="w-4 h-4" />
-                        Escolher Outro Dia
-                      </Button>
                     </div>
-                    <div className="p-4 rounded-2xl border border-amber-500/30 bg-amber-500/5 space-y-3">
+                    <div className="space-y-3 rounded-2xl border border-primary/20 bg-primary/5 p-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center flex-shrink-0">
-                          <Bell className="w-5 h-5 text-amber-500" />
+                        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                          <Bell className="h-5 w-5 text-primary" />
                         </div>
                         <div>
                           <p className="text-sm font-medium">Fila de Espera</p>
@@ -746,7 +737,7 @@ export default function BookingPortal() {
                         </div>
                       </div>
                       <Button
-                        className="w-full bg-amber-500 hover:bg-amber-600 text-white border-none gap-2"
+                        className="w-full gap-2"
                         onClick={() => setIsWaitlistModalOpen(true)}
                       >
                         <Bell className="w-4 h-4" />
@@ -778,20 +769,10 @@ export default function BookingPortal() {
                     </div>
                     <div className="flex flex-col items-center gap-2 pt-4 border-t border-border/50">
                       <p className="text-xs text-muted-foreground">Não encontrou o horário que queria?</p>
-                      <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                      <div className="w-full sm:w-auto">
                         <Button
-                          variant="outline"
                           size="sm"
-                          className="gap-2 h-8 text-xs"
-                          onClick={() => setStep(3)}
-                        >
-                          <CalendarIcon className="w-3.5 h-3.5" />
-                          Escolher Outro Dia
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-amber-500 border-amber-500/30 hover:bg-amber-500/10 hover:text-amber-600 gap-2 h-8 text-xs"
+                          className="h-10 w-full gap-2 px-5 text-xs sm:w-auto"
                           onClick={() => setIsWaitlistModalOpen(true)}
                         >
                           <Bell className="w-3.5 h-3.5" />
