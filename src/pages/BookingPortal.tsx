@@ -41,6 +41,8 @@ const toDjangoWeekday = (date: Date) => {
   return jsDay === 0 ? 6 : jsDay - 1;
 };
 
+const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+
 export default function BookingPortal() {
   const [step, setStep] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
@@ -54,12 +56,14 @@ export default function BookingPortal() {
   // Form State
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [birthDate, setBirthDate] = useState('');
   const [isPhoneChecked, setIsPhoneChecked] = useState(false);
   const [isCheckingPhone, setIsCheckingPhone] = useState(false);
   const [phoneExists, setPhoneExists] = useState(false);
   const [hasNameOnServer, setHasNameOnServer] = useState(false);
   const [hasBirthDateOnServer, setHasBirthDateOnServer] = useState(false);
+  const [hasEmailOnServer, setHasEmailOnServer] = useState(false);
   const [rememberDevice, setRememberDevice] = useState(true);
 
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
@@ -158,6 +162,7 @@ export default function BookingPortal() {
       return publicApi.post('/appointments/public_booking/', {
         name,
         phone,
+        email,
         birth_date: dateToBackend(birthDate),
         services_ids: selectedServices.map(s => s.id),
         barber_id: selectedBarber.id,
@@ -211,6 +216,7 @@ export default function BookingPortal() {
       return publicApi.post('/users/register_client/', {
         name,
         phone,
+        email,
         birth_date: dateToBackend(birthDate)
       });
     }
@@ -226,15 +232,17 @@ export default function BookingPortal() {
         setBirthDate(dateToFrontend(res.data.user.birth_date) || '');
         setHasNameOnServer(!!res.data.user.first_name);
         setHasBirthDateOnServer(!!res.data.user.birth_date);
+        setHasEmailOnServer(!!res.data.user.has_email);
         setPhoneExists(true);
       } else {
         setHasNameOnServer(false);
         setHasBirthDateOnServer(false);
+        setHasEmailOnServer(false);
         setPhoneExists(false);
       }
       setIsPhoneChecked(true);
       persistPhonePreference(phone, rememberDevice);
-      return !!(res.data.exists && res.data.user.first_name && res.data.user.birth_date);
+      return !!(res.data.exists && res.data.user.first_name && res.data.user.birth_date && res.data.user.has_email);
     } catch (error: any) {
       console.error(error);
       const msg = error.response?.data?.error || 'Erro ao consultar telefone. Tente novamente.';
@@ -260,6 +268,7 @@ export default function BookingPortal() {
             setBirthDate(dateToFrontend(res.data.user.birth_date) || '');
             setHasNameOnServer(!!res.data.user.first_name);
             setHasBirthDateOnServer(!!res.data.user.birth_date);
+            setHasEmailOnServer(!!res.data.user.has_email);
             setPhoneExists(true);
           }
           setIsPhoneChecked(true);
@@ -475,7 +484,7 @@ export default function BookingPortal() {
                 <div>
                   <span className="eyebrow">Última etapa</span>
                   <h2 className="mt-1 font-display text-3xl font-semibold sm:text-4xl">Como podemos falar com você?</h2>
-                  <p className="mt-2 text-sm text-muted-foreground">Usaremos o WhatsApp para identificar seu cadastro e confirmar o atendimento.</p>
+                  <p className="mt-2 text-sm text-muted-foreground">Usaremos seu WhatsApp e e-mail para identificar o cadastro e confirmar o atendimento.</p>
                 </div>
                 
                 <div className="space-y-4">
@@ -489,6 +498,8 @@ export default function BookingPortal() {
                       aria-label="Seu WhatsApp"
                       onChange={(e) => {
                         setPhone(maskPhone(e.target.value));
+                        setEmail('');
+                        setHasEmailOnServer(false);
                         setIsPhoneChecked(false);
                       }}
                       onBlur={() => {
@@ -519,7 +530,7 @@ export default function BookingPortal() {
                     </div>
                   )}
 
-                  {isPhoneChecked && (!phoneExists || !hasNameOnServer || !hasBirthDateOnServer) && (
+                  {isPhoneChecked && (!phoneExists || !hasNameOnServer || !hasBirthDateOnServer || !hasEmailOnServer) && (
                     <div className="space-y-5 animate-in slide-in-from-top-2 duration-300 pt-2">
                       <div className="inline-block px-3 py-1 rounded-full bg-primary/10 text-primary text-[10px] uppercase">
                         {!phoneExists ? 'Novo Cadastro' : 'Complete seu Perfil'}
@@ -547,6 +558,22 @@ export default function BookingPortal() {
                             className="h-12 bg-background border-border/50"
                             inputMode="numeric"
                           />
+                        </div>
+                      )}
+
+                      {!hasEmailOnServer && (
+                        <div className="space-y-2">
+                          <label className="text-sm text-muted-foreground">E-mail</label>
+                          <Input
+                            type="email"
+                            placeholder="voce@exemplo.com"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value.trim())}
+                            className="h-12 bg-background border-border/50"
+                            autoComplete="email"
+                            inputMode="email"
+                          />
+                          <p className="text-[11px] text-muted-foreground">Usado para o pagamento e envio do comprovante.</p>
                         </div>
                       )}
                     </div>
@@ -806,7 +833,11 @@ export default function BookingPortal() {
                   (step === 1 && selectedServices.length === 0) ||
                   (step === 2 && !selectedBarber) ||
                   (step === 3 && (!selectedDate || !selectedTime)) ||
-                  (step === 4 && (!phone || (isPhoneChecked && !phoneExists && !name))) ||
+                  (step === 4 && (!phone || (isPhoneChecked && (
+                    (!hasNameOnServer && !name) ||
+                    (!hasBirthDateOnServer && !birthDate) ||
+                    (!hasEmailOnServer && !isValidEmail(email))
+                  )))) ||
                   bookMutation.isPending || isCheckingPhone
                 }
                 className="h-12 flex-1 gap-2 px-5 shadow-lg shadow-primary/20 sm:flex-none sm:px-8"
