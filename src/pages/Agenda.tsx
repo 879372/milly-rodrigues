@@ -1099,7 +1099,7 @@ export default function Agenda() {
         </div>
 
         {/* View Tabs */}
-        <div className="sticky top-0 z-20 grid grid-cols-2 gap-1 rounded-2xl border border-border/60 bg-card/90 p-1.5 shadow-soft backdrop-blur-xl">
+        <div className="grid grid-cols-2 gap-1 rounded-2xl border border-border/60 bg-card/90 p-1.5 shadow-soft backdrop-blur-xl md:sticky md:top-0 md:z-20">
           <button
             type="button"
             onClick={() => setAgendaView('timeline')}
@@ -1288,7 +1288,7 @@ export default function Agenda() {
         {agendaView === 'timeline' && (
         <div className="flex-1 bg-card/90 rounded-3xl border border-white/70 shadow-lift overflow-hidden flex flex-col min-h-[560px] sm:min-h-[600px]">
           {/* Timeline Header */}
-          <div className="sticky top-0 z-20 p-3 sm:p-4 border-b border-border/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 bg-card/95 backdrop-blur">
+          <div className="p-3 sm:p-4 border-b border-border/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 bg-card/95 backdrop-blur md:sticky md:top-0 md:z-20">
             <div className="flex items-center gap-3 w-full sm:w-auto">
               {me?.role === 'admin' ? (
                 <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -1322,7 +1322,10 @@ export default function Agenda() {
               Nenhum agendamento com os status selecionados para esta profissional.
             </div>
           ) : (
-            <div className="relative flex-1 overflow-y-auto overflow-x-hidden min-h-[500px]">
+            <div
+              className="relative h-[var(--timeline-height)] flex-none overflow-x-hidden md:h-auto md:min-h-[500px] md:flex-1 md:overflow-y-auto"
+              style={{ '--timeline-height': `${Math.max(timelineHours.length * 120, 500)}px` } as React.CSSProperties}
+            >
               {/* Grid Background */}
               <div className="absolute inset-0">
                 {timelineHours.map(h => (
