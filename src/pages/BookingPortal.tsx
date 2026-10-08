@@ -457,11 +457,11 @@ export default function BookingPortal() {
           })}
         </div>
 
-        {(selectedServices.length > 0 || selectedBarber || selectedDate) && (
+        {(selectedServices.length > 0 || (step > 2 && selectedBarber) || (selectedDate && selectedTime)) && (
           <div className="mb-4 flex min-h-12 flex-wrap items-center gap-x-4 gap-y-1 rounded-2xl border border-primary/15 bg-primary/[0.045] px-4 py-2.5 text-xs">
             {selectedServices.length > 0 && <span><strong>{selectedServices.length} {selectedServices.length === 1 ? 'serviço' : 'serviços'}</strong> · {formatBRL(totalPrice)} · {totalDuration} min</span>}
-            {selectedBarber && <span className="text-muted-foreground">com {selectedBarber.first_name || selectedBarber.name}</span>}
-            {selectedDate && <span className="text-muted-foreground">{format(selectedDate, "dd 'de' MMM", { locale: ptBR })}{selectedTime ? ` às ${selectedTime}` : ''}</span>}
+            {step > 2 && selectedBarber && <span className="text-muted-foreground">com {selectedBarber.first_name || selectedBarber.name}</span>}
+            {selectedDate && selectedTime && <span className="text-muted-foreground">{format(selectedDate, "dd 'de' MMM", { locale: ptBR })} às {selectedTime}</span>}
           </div>
         )}
 
