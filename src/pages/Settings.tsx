@@ -257,12 +257,14 @@ export default function Settings() {
   });
 
   const [handleInput, setHandleInput] = useState('');
+  const [depositPercentageInput, setDepositPercentageInput] = useState('100');
   const [holdInput, setHoldInput] = useState('15');
   const [handleDirty, setHandleDirty] = useState(false);
 
   useEffect(() => {
     if (bookingConfig) {
       if (!handleDirty) setHandleInput(bookingConfig.infinitepay_handle || '');
+      setDepositPercentageInput(String(bookingConfig.deposit_percentage ?? 100));
       setHoldInput(String(bookingConfig.hold_minutes ?? 15));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -275,7 +277,7 @@ export default function Settings() {
       setHandleDirty(false);
       toast.success('Configuração de pagamento atualizada!');
     },
-    onError: (e: any) => toast.error(e.response?.data?.infinitepay_handle?.[0] || e.response?.data?.hold_minutes?.[0] || 'Erro ao salvar configuração.'),
+    onError: (e: any) => toast.error(e.response?.data?.infinitepay_handle?.[0] || e.response?.data?.deposit_percentage?.[0] || e.response?.data?.hold_minutes?.[0] || 'Erro ao salvar configuração.'),
   });
 
   const togglePaymentDayMutation = useMutation({
@@ -705,6 +707,35 @@ export default function Settings() {
                       Salvar
                     </Button>
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="font-bold">Porcentagem da entrada</Label>
+                  <div className="flex flex-col gap-2 min-[420px]:flex-row">
+                    <div className="relative w-full min-[420px]:w-32">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={depositPercentageInput}
+                        onChange={(e) => setDepositPercentageInput(e.target.value)}
+                        className="h-11 bg-background border-border/50 pr-9"
+                        aria-label="Porcentagem da entrada"
+                      />
+                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm font-bold text-muted-foreground">%</span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      onClick={() => saveBookingConfig.mutate({ deposit_percentage: Number(depositPercentageInput) })}
+                      disabled={saveBookingConfig.isPending || !depositPercentageInput}
+                      className="h-11 font-bold"
+                    >
+                      Salvar porcentagem
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    O checkout cobra somente esta entrada. O restante fica pendente para o dia do atendimento.
+                  </p>
                 </div>
 
                 <div className="space-y-2">

@@ -17,6 +17,8 @@ type ConfirmResponse = {
     date: string;
     time: string;
     total_price: string;
+    paid_amount: string;
+    remaining_amount: string;
     portal_token: string;
   };
 };
@@ -100,8 +102,10 @@ export default function CheckoutReturn() {
   if (state === 'paid' && data) {
     return (
       <BookingSuccess
-        title="Pagamento confirmado!"
-        subtitle="Seu horário está confirmado. Esperamos por você!"
+        title={Number(data.remaining_amount) > 0.009 ? 'Entrada confirmada!' : 'Pagamento confirmado!'}
+        subtitle={Number(data.remaining_amount) > 0.009
+          ? `Recebemos R$ ${data.paid_amount}. Restam R$ ${data.remaining_amount} para o dia do atendimento.`
+          : 'Seu horário está confirmado. Esperamos por você!'}
         serviceNames={data.service_name}
         barberName={data.barber_name}
         barberPhone={data.barber_phone}

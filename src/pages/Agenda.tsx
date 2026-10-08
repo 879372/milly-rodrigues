@@ -75,6 +75,9 @@ type Appointment = {
   notes?: string;
   payments?: { method: string; amount: string; payment_date?: string }[];
   payment_status?: string;
+  payment_amount_cents?: number;
+  paid_amount?: string;
+  remaining_amount?: string;
   payment_capture_method?: string;
   payment_confirmed_at?: string;
 };
@@ -1497,7 +1500,10 @@ export default function Agenda() {
                                   {isApp ? <><Scissors className="w-2.5 h-2.5 shrink-0" /> <span className="truncate">{item.service_name}</span></> : <><CalendarOff className="w-2.5 h-2.5 shrink-0" /> <span className="truncate">{item.reason}</span></>}
                                   {isApp && (item as any).payment_status === 'paid' && (
                                     <span className="ml-auto shrink-0 inline-flex items-center gap-0.5 rounded bg-green-500/20 text-green-600 px-1 py-px text-[8px] sm:text-[9px] font-black uppercase leading-none">
-                                      <CheckCheck className="w-2.5 h-2.5" /> Pago
+                                      <CheckCheck className="w-2.5 h-2.5" />
+                                      {Number((item as any).remaining_amount || 0) > 0.009
+                                        ? `Entrada ${formatCurrency((item as any).paid_amount || 0)}`
+                                        : 'Pago'}
                                     </span>
                                   )}
                                 </div>
@@ -1613,14 +1619,26 @@ export default function Agenda() {
             ) : (
               <>
                 {activeAppointment?.payment_status === 'paid' && (
-                  <div className="flex items-start gap-2 p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-600 text-xs">
+                  <div className="space-y-3 rounded-lg bg-green-500/10 border border-green-500/30 p-3 text-xs text-green-700 dark:text-green-400">
+                    <div className="flex items-start gap-2">
                     <CheckCheck className="w-4 h-4 flex-shrink-0 mt-0.5" />
                     <span>
-                      <strong>Pagamento já recebido via InfinitePay</strong>
+                      <strong>{Number(activeAppointment.remaining_amount || 0) > 0.009 ? 'Entrada recebida via InfinitePay' : 'Pagamento recebido via InfinitePay'}</strong>
                       {activeAppointment.payment_capture_method === 'credit_card' ? ' (cartão)' : ' (PIX)'}
                       {activeAppointment.payment_confirmed_at && ` em ${format(new Date(activeAppointment.payment_confirmed_at), "dd/MM 'às' HH:mm")}`}.
                       Confira os valores e clique em Concluir — não cobre novamente.
                     </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 border-t border-green-500/20 pt-3">
+                      <div>
+                        <span className="block text-[10px] uppercase tracking-wide opacity-75">Valor pago</span>
+                        <strong className="text-sm">{formatCurrency(activeAppointment.paid_amount || 0)}</strong>
+                      </div>
+                      <div className="text-right">
+                        <span className="block text-[10px] uppercase tracking-wide opacity-75">Restante</span>
+                        <strong className="text-sm">{formatCurrency(activeAppointment.remaining_amount || 0)}</strong>
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -1641,7 +1659,7 @@ export default function Agenda() {
                         onChange={(e) => {
                           const val = maskCurrency(e.target.value);
                           setCompleteDiscount(val);
-                          if (payments.length === 1 && activeAppointment) {
+                          if (payments.length === 1 && activeAppointment && activeAppointment.payment_status !== 'paid') {
                             const disc = parseFloat(unmaskCurrency(val)) || 0;
                             const newTotal = parseFloat(activeAppointment.total_price) - disc;
                             setPayments([{ ...payments[0], amount: newTotal.toFixed(2).replace('.', ',') }]);

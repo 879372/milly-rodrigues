@@ -76,7 +76,7 @@ export default function BookingPortal() {
   const { data: bookingConfig } = useQuery({
     queryKey: ['booking-config', 'public'],
     queryFn: async () => {
-      const res = await publicApi.get<{ payment_days: number[] }>('/booking-config/');
+      const res = await publicApi.get<{ payment_days: number[]; deposit_percentage: number }>('/booking-config/');
       return res.data;
     },
   });
@@ -413,6 +413,9 @@ export default function BookingPortal() {
   }
 
   const totalPrice = selectedServices.reduce((total, service) => total + Number(priceOf(service)), 0);
+  const depositPercentage = bookingConfig?.deposit_percentage ?? 100;
+  const depositAmount = Math.round(totalPrice * depositPercentage) / 100;
+  const remainingAfterDeposit = Math.max(0, totalPrice - depositAmount);
   const totalDuration = selectedServices.reduce((total, service) => total + service.duration_minutes, 0);
 
   return (
@@ -955,6 +958,18 @@ export default function BookingPortal() {
                   <strong>Total:</strong>
                   <span className="text-primary font-bold text-lg">{formatBRL(selectedServices.reduce((acc, curr) => acc + Number(priceOf(curr)), 0))}</span>
                 </div>
+                {requirePayment && (
+                  <div className="grid grid-cols-2 gap-3 rounded-xl bg-primary/5 p-3 text-sm">
+                    <div>
+                      <p className="text-[11px] text-muted-foreground">Entrada agora ({depositPercentage}%)</p>
+                      <p className="font-bold text-primary">{formatBRL(depositAmount)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[11px] text-muted-foreground">Restante no atendimento</p>
+                      <p className="font-bold">{formatBRL(remainingAfterDeposit)}</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -964,7 +979,7 @@ export default function BookingPortal() {
                 <div className="space-y-1">
                   <p className="text-sm font-bold text-foreground">Política de cancelamento</p>
                   <p className="text-xs leading-relaxed text-muted-foreground">
-                    Em caso de falta ou cancelamento, o valor pago não será reembolsado.
+                    Em caso de falta ou cancelamento, o valor da entrada não será reembolsado.
                     Ao prosseguir para o pagamento, você declara estar ciente desta condição.
                   </p>
                 </div>
