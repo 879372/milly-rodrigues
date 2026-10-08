@@ -419,19 +419,19 @@ export default function BookingPortal() {
   const totalDuration = selectedServices.reduce((total, service) => total + service.duration_minutes, 0);
 
   return (
-    <div className="min-h-screen bg-background px-3 pb-8 pt-4 text-foreground sm:px-6 sm:pb-12 sm:pt-7">
-      <header className="mx-auto mb-5 flex w-full max-w-3xl items-center justify-between rounded-2xl border border-border/60 bg-card/75 px-4 py-3 shadow-soft backdrop-blur-xl sm:px-5">
+    <div className="min-h-screen bg-background px-3 pb-6 pt-2 text-foreground sm:px-6 sm:pb-12 sm:pt-7">
+      <header className="mx-auto mb-3 flex w-full max-w-3xl items-center justify-between rounded-xl border border-border/60 bg-card/75 px-3 py-2 shadow-soft backdrop-blur-xl sm:mb-5 sm:rounded-2xl sm:px-5 sm:py-3">
         <BrandMark compact />
         <div className="text-right">
           <p className="eyebrow">Agendamento online</p>
-          <p className="text-xs text-muted-foreground">Rápido, simples e seguro</p>
+          <p className="hidden text-xs text-muted-foreground sm:block">Rápido, simples e seguro</p>
         </div>
       </header>
 
       <main className="mx-auto w-full max-w-3xl">
-        <div className="mb-5 px-1 sm:mb-7">
+        <div className="mb-2 px-1 sm:mb-7">
           <span className="eyebrow">Etapa {step} de {steps.length}</span>
-          <div className="mt-2 flex items-end justify-between gap-4">
+          <div className="mt-2 hidden items-end justify-between gap-4 sm:flex">
             <div>
               <h1 className="font-display text-3xl font-semibold leading-none sm:text-5xl">Seu momento começa aqui</h1>
               <p className="mt-2 text-sm text-muted-foreground sm:text-base">Escolha com calma. Você poderá revisar tudo antes de confirmar.</p>
@@ -440,17 +440,17 @@ export default function BookingPortal() {
           </div>
         </div>
 
-        <div className="mb-5 grid grid-cols-4 gap-2" aria-label={`Etapa ${step} de ${steps.length}: ${steps[step - 1].title}`}>
+        <div className="mb-3 grid grid-cols-4 gap-1.5 sm:mb-5 sm:gap-2" aria-label={`Etapa ${step} de ${steps.length}: ${steps[step - 1].title}`}>
           {steps.map((item) => {
             const Icon = item.icon;
             const isCurrent = step === item.id;
             const isComplete = step > item.id;
             return (
-              <div key={item.id} className="space-y-2">
-                <div className={`h-1.5 rounded-full transition-colors ${isCurrent || isComplete ? 'bg-primary' : 'bg-muted'}`} />
+              <div key={item.id} className="space-y-1.5 sm:space-y-2">
+                <div className={`h-1 rounded-full transition-colors sm:h-1.5 ${isCurrent || isComplete ? 'bg-primary' : 'bg-muted'}`} />
                 <div className={`flex items-center gap-1.5 text-[10px] font-semibold sm:text-xs ${isCurrent ? 'text-foreground' : isComplete ? 'text-primary' : 'text-muted-foreground'}`}>
                   {isComplete ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <Icon className="h-3.5 w-3.5 shrink-0" />}
-                  <span className="hidden truncate min-[430px]:block">{item.title}</span>
+                  <span className="hidden truncate sm:block">{item.title}</span>
                 </div>
               </div>
             );
@@ -467,7 +467,7 @@ export default function BookingPortal() {
 
         {/* Form Content */}
         <Card className="overflow-visible border-border/60 bg-card/80 shadow-lift backdrop-blur-xl">
-          <CardContent className="p-4 sm:p-7 md:p-8">
+          <CardContent className="p-3 sm:p-7 md:p-8">
             
             {/* Step 1: Identification */}
             {step === 4 && (
@@ -641,18 +641,18 @@ export default function BookingPortal() {
 
             {/* Step 1: Services */}
             {step === 1 && (
-              <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-500">
-                <div className="mb-5">
+              <div className="space-y-3 animate-in fade-in slide-in-from-right-4 duration-500 sm:space-y-4">
+                <div className="mb-3 sm:mb-5">
                   <span className="eyebrow">O que você deseja fazer</span>
-                  <h2 className="mt-1 font-display text-3xl font-semibold sm:text-4xl">Escolha seus serviços</h2>
-                  <p className="mt-2 text-sm text-muted-foreground">Você pode selecionar mais de uma opção.</p>
+                  <h2 className="mt-0.5 font-display text-2xl font-semibold sm:mt-1 sm:text-4xl">Escolha seus serviços</h2>
+                  <p className="mt-1 text-xs text-muted-foreground sm:mt-2 sm:text-sm">Você pode selecionar mais de uma opção.</p>
                 </div>
 
-                <div className="relative mb-6">
+                <div className="relative mb-4 sm:mb-6">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
                   <Input
                     placeholder="Buscar serviço..."
-                    className="pl-10 h-14 bg-background border-border/50 focus-visible:ring-primary text-base"
+                    className="h-12 bg-background pl-10 text-sm border-border/50 focus-visible:ring-primary sm:h-14 sm:text-base"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
