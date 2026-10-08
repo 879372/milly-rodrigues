@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Calendar, Users, Scissors, DollarSign, Package, Settings, LogOut, Menu, History, Loader2, ShieldAlert, MoreHorizontal } from 'lucide-react';
+import { LayoutDashboard, Calendar, Users, Scissors, DollarSign, Package, Settings, LogOut, Menu, History, Loader2, ShieldAlert, MoreHorizontal, MessageCircleHeart } from 'lucide-react';
 import { useAuthStore } from '@/lib/store';
 import { api } from '@/lib/api';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
@@ -66,6 +66,7 @@ const sidebarItems = [
   { icon: Package, label: 'Produtos', path: '/produtos' },
   { icon: Users, label: 'Profissionais', path: '/profissionais', adminOnly: true },
   { icon: History, label: 'Histórico', path: '/historico', adminOnly: true },
+  { icon: MessageCircleHeart, label: 'Lembretes', path: '/lembretes', adminOnly: true },
   { icon: Settings, label: 'Configurações', path: '/configuracoes' },
 ];
 

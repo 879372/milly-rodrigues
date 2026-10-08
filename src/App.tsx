@@ -16,6 +16,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Agenda = lazy(() => import('./pages/Agenda'));
 const Financeiro = lazy(() => import('./pages/Financeiro'));
 const Settings = lazy(() => import('./pages/Settings'));
+const Reminders = lazy(() => import('./pages/Reminders'));
 const Profissionais = lazy(() => import('./pages/Profissionais'));
 const Historico = lazy(() => import('./pages/Historico'));
 const MyAppointments = lazy(() => import('./pages/MyAppointments'));
@@ -64,6 +65,7 @@ function App() {
           <Route path="profissionais" element={<RequireRole roles={['admin']}><Profissionais /></RequireRole>} />
           <Route path="historico" element={<RequireRole roles={['admin']}><Historico /></RequireRole>} />
           <Route path="configuracoes" element={<Settings />} />
+          <Route path="lembretes" element={<RequireRole roles={['admin']}><Reminders /></RequireRole>} />
         </Route>
       </Routes>
       </Suspense>
