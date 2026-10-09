@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
-import { User, Scissors, MoreVertical, Plus, Trash2, Loader2, DollarSign, Filter, RefreshCw, CalendarOff, ShoppingCart, Zap, Bell, Phone, CheckCheck, Calendar as CalendarIcon, MessageCircle } from 'lucide-react';
+import { User, Scissors, MoreVertical, Plus, Trash2, Loader2, DollarSign, Filter, RefreshCw, CalendarOff, ShoppingCart, Zap, Bell, Phone, CheckCheck, Calendar as CalendarIcon, MessageCircle, Lock } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -78,6 +78,7 @@ type Appointment = {
   payment_amount_cents?: number;
   paid_amount?: string;
   remaining_amount?: string;
+  online_paid_amount?: string;
   payment_capture_method?: string;
   payment_confirmed_at?: string;
 };
@@ -854,7 +855,14 @@ export default function Agenda() {
       const res = await api.get<Appointment>(`/appointments/${appId}/`);
       const app = res.data;
       setActiveAppointment(app);
-      if (app.payments && app.payments.length > 0) {
+      const onlinePaid = Number(app.online_paid_amount || 0);
+      if (onlinePaid > 0) {
+        // A entrada da InfinitePay fica preservada no servidor; aqui só entra o que falta receber.
+        const remaining = Number(app.total_price) - Number(app.discount || 0) - onlinePaid;
+        setPayments(remaining > 0.009
+          ? [{ method: 'pix', amount: remaining.toFixed(2).replace('.', ','), payment_date: format(new Date(), 'yyyy-MM-dd') }]
+          : []);
+      } else if (app.payments && app.payments.length > 0) {
         // Já pago (ex.: InfinitePay) — pré-preenche com o que já foi recebido.
         setPayments(app.payments.map((p: any) => ({
           method: p.method,
@@ -892,7 +900,8 @@ export default function Agenda() {
   const totalSalePaid = salePayments.reduce((acc, curr) => acc + (parseFloat(unmaskCurrency(curr.amount)) || 0), 0);
   const isSaleTotalValid = selectedProducts.length > 0 && Math.abs(totalSalePaid - (totalProducts - (parseFloat(unmaskCurrency(saleDiscount)) || 0))) < 0.01;
 
-  const totalPaid = payments.reduce((acc, curr) => acc + (parseFloat(unmaskCurrency(curr.amount)) || 0), 0);
+  const onlinePaid = Number(activeAppointment?.online_paid_amount || 0);
+  const totalPaid = onlinePaid + payments.reduce((acc, curr) => acc + (parseFloat(unmaskCurrency(curr.amount)) || 0), 0);
   // A gorjeta é um registro separado: ela não aumenta o valor devido pelo cliente.
   const expectedTotal = activeAppointment ? parseFloat(activeAppointment.total_price) - (parseFloat(unmaskCurrency(completeDiscount)) || 0) : 0;
   const tipAmount = parseFloat(unmaskCurrency(completeTip)) || 0;
@@ -1621,25 +1630,25 @@ export default function Agenda() {
               </div>
             ) : (
               <>
-                {activeAppointment?.payment_status === 'paid' && (
-                  <div className="space-y-3 rounded-lg bg-green-500/10 border border-green-500/30 p-3 text-xs text-green-700 dark:text-green-400">
+                {activeAppointment && onlinePaid > 0 && (
+                  <div className="space-y-3 rounded-2xl border border-primary/15 bg-primary/[0.045] p-3 text-xs">
                     <div className="flex items-start gap-2">
-                    <CheckCheck className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                    <span>
-                      <strong>{Number(activeAppointment.remaining_amount || 0) > 0.009 ? 'Entrada recebida via InfinitePay' : 'Pagamento recebido via InfinitePay'}</strong>
-                      {activeAppointment.payment_capture_method === 'credit_card' ? ' (cartão)' : ' (PIX)'}
-                      {activeAppointment.payment_confirmed_at && ` em ${format(new Date(activeAppointment.payment_confirmed_at), "dd/MM 'às' HH:mm")}`}.
-                      Confira os valores e clique em Concluir — não cobre novamente.
-                    </span>
+                      <CheckCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                      <span className="text-muted-foreground">
+                        <strong className="text-foreground">{onlinePaid < expectedTotal - 0.009 ? 'Entrada recebida via InfinitePay' : 'Pagamento recebido via InfinitePay'}</strong>
+                        {activeAppointment.payment_capture_method === 'credit_card' ? ' (cartão)' : ' (PIX)'}
+                        {activeAppointment.payment_confirmed_at && ` em ${format(new Date(activeAppointment.payment_confirmed_at), "dd/MM 'às' HH:mm")}`}.
+                        {' '}Registre abaixo apenas o que for recebido agora.
+                      </span>
                     </div>
-                    <div className="grid grid-cols-2 gap-3 border-t border-green-500/20 pt-3">
+                    <div className="grid grid-cols-2 gap-3 border-t border-primary/10 pt-3">
                       <div>
-                        <span className="block text-[10px] uppercase tracking-wide opacity-75">Valor pago</span>
-                        <strong className="text-sm">{formatCurrency(activeAppointment.paid_amount || 0)}</strong>
+                        <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">Já recebido</span>
+                        <strong className="text-sm text-foreground">{formatCurrency(onlinePaid)}</strong>
                       </div>
                       <div className="text-right">
-                        <span className="block text-[10px] uppercase tracking-wide opacity-75">Restante</span>
-                        <strong className="text-sm">{formatCurrency(activeAppointment.remaining_amount || 0)}</strong>
+                        <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">A receber agora</span>
+                        <strong className="text-sm text-primary">{formatCurrency(Math.max(0, expectedTotal - onlinePaid))}</strong>
                       </div>
                     </div>
                   </div>
@@ -1662,9 +1671,9 @@ export default function Agenda() {
                         onChange={(e) => {
                           const val = maskCurrency(e.target.value);
                           setCompleteDiscount(val);
-                          if (payments.length === 1 && activeAppointment && activeAppointment.payment_status !== 'paid') {
+                          if (payments.length === 1 && activeAppointment) {
                             const disc = parseFloat(unmaskCurrency(val)) || 0;
-                            const newTotal = parseFloat(activeAppointment.total_price) - disc;
+                            const newTotal = Math.max(0, parseFloat(activeAppointment.total_price) - disc - onlinePaid);
                             setPayments([{ ...payments[0], amount: newTotal.toFixed(2).replace('.', ',') }]);
                           }
                         }}
@@ -1691,6 +1700,15 @@ export default function Agenda() {
                 </div>
 
                 <div className="space-y-3">
+                  {onlinePaid > 0 && (
+                    <div className="flex h-11 items-center justify-between gap-2 rounded-md border border-border/50 bg-muted/40 px-3 text-sm">
+                      <span className="flex items-center gap-2 text-muted-foreground">
+                        <Lock className="h-3.5 w-3.5" />
+                        Entrada InfinitePay {activeAppointment?.payment_capture_method === 'credit_card' ? '(cartão)' : '(PIX)'}
+                      </span>
+                      <strong>{formatCurrency(onlinePaid)}</strong>
+                    </div>
+                  )}
                   {payments.map((payment, index) => (
                     <div key={index} className="flex gap-2 items-center">
                       <div className="flex-1">
@@ -1729,7 +1747,7 @@ export default function Agenda() {
                           onChange={(e) => updatePayment(index, 'amount', maskCurrency(e.target.value))}
                         />
                       </div>
-                      {payments.length > 1 && (
+                      {(payments.length > 1 || onlinePaid > 0) && (
                         <Button
                           variant="ghost"
                           size="icon"
@@ -1747,11 +1765,11 @@ export default function Agenda() {
                   <Plus className="w-4 h-4" /> Adicionar forma de pagamento
                 </Button>
 
-                <div className={`p-4 rounded-lg flex justify-between items-center ${isTotalValid ? 'bg-green-500/10 text-green-500' : isTotalExceeding ? 'bg-red-500/10 text-red-500' : 'bg-yellow-500/10 text-yellow-500'}`}>
+                <div className={`flex items-center justify-between rounded-2xl border p-4 ${isTotalValid ? 'border-primary/20 bg-primary/[0.06] text-primary' : isTotalExceeding ? 'border-destructive/30 bg-destructive/10 text-destructive' : 'border-border/60 bg-muted/40 text-foreground'}`}>
                   <div className="flex flex-col">
-                    <span className="text-sm font-medium">Soma dos pagamentos:</span>
+                    <span className="text-sm font-medium">{onlinePaid > 0 ? 'Total recebido (com a entrada):' : 'Soma dos pagamentos:'}</span>
                     {!isTotalValid && !isTotalExceeding && remainingDebt > 0.01 && (
-                      <span className="text-xs opacity-80">Faltam {formatCurrency(remainingDebt)} — será registrado como fiado</span>
+                      <span className="text-xs text-amber-700 dark:text-amber-400">Faltam {formatCurrency(remainingDebt)} — será registrado como fiado</span>
                     )}
                   </div>
                   <span className="font-bold">{formatCurrency(totalPaid)}</span>
@@ -2333,12 +2351,12 @@ export default function Agenda() {
                 </Button>
               </div>
 
-              <div className={`p-4 rounded-xl flex justify-between items-center transition-colors ${isSaleTotalValid ? 'bg-green-500/10 text-green-500 border border-green-500/20' : isSaleExceeding ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20'}`}>
+              <div className={`p-4 rounded-2xl border flex justify-between items-center transition-colors ${isSaleTotalValid ? 'border-primary/20 bg-primary/[0.06] text-primary' : isSaleExceeding ? 'border-destructive/30 bg-destructive/10 text-destructive' : 'border-border/60 bg-muted/40 text-foreground'}`}>
                 <div className="flex flex-col">
                   <span className="text-[9px] font-black uppercase tracking-widest opacity-70">Total Recebido</span>
                   <span className="font-black text-xl leading-none">{formatCurrency(totalSalePaid)}</span>
                   {!isSaleTotalValid && !isSaleExceeding && remainingSaleDebt > 0.01 && (
-                    <span className="text-[10px] font-bold mt-1 opacity-80">Faltam {formatCurrency(remainingSaleDebt)} — será registrado como fiado</span>
+                    <span className="text-[10px] font-bold mt-1 text-amber-700 dark:text-amber-400">Faltam {formatCurrency(remainingSaleDebt)} — será registrado como fiado</span>
                   )}
                 </div>
                 {isSaleExceeding && totalProducts > 0 && (
@@ -3057,7 +3075,7 @@ export default function Agenda() {
         <AlertDialogContent className="bg-card border-border">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
-              <DollarSign className="w-5 h-5 text-yellow-500" />
+              <DollarSign className="w-5 h-5 text-primary" />
               Pagamento Incompleto
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
@@ -3067,9 +3085,9 @@ export default function Agenda() {
                   <strong className="text-foreground">{formatCurrency(totalPaid)}</strong> de um total de{' '}
                   <strong className="text-foreground">{formatCurrency(expectedTotal)}</strong>.
                 </p>
-                <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex justify-between items-center">
+                <div className="flex items-center justify-between rounded-2xl border border-border/60 bg-muted/40 p-3 text-foreground">
                   <span className="text-sm font-medium">Valor restante (fiado):</span>
-                  <span className="font-black text-lg">{formatCurrency(remainingDebt)}</span>
+                  <span className="font-black text-lg text-amber-700 dark:text-amber-400">{formatCurrency(remainingDebt)}</span>
                 </div>
                 <p className="text-xs opacity-70">
                   O valor restante será registrado como débito do cliente e poderá ser cobrado posteriormente.
@@ -3080,7 +3098,7 @@ export default function Agenda() {
           <AlertDialogFooter>
             <AlertDialogCancel>Voltar</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-yellow-600 hover:bg-yellow-700 text-white font-bold"
+              className="font-bold"
               onClick={() => {
                 if (!activeAppointment) return;
                 completeWithPaymentsMutation.mutate({
@@ -3102,7 +3120,7 @@ export default function Agenda() {
         <AlertDialogContent className="bg-card border-border">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
-              <ShoppingCart className="w-5 h-5 text-yellow-500" />
+              <ShoppingCart className="w-5 h-5 text-primary" />
               Pagamento Incompleto da Venda
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
@@ -3112,9 +3130,9 @@ export default function Agenda() {
                   <strong className="text-foreground">{formatCurrency(totalSalePaid)}</strong> de um total de{' '}
                   <strong className="text-foreground">{formatCurrency(expectedSaleTotal)}</strong>.
                 </p>
-                <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 flex justify-between items-center">
+                <div className="flex items-center justify-between rounded-2xl border border-border/60 bg-muted/40 p-3 text-foreground">
                   <span className="text-sm font-medium">Valor restante (fiado):</span>
-                  <span className="font-black text-lg">{formatCurrency(remainingSaleDebt)}</span>
+                  <span className="font-black text-lg text-amber-700 dark:text-amber-400">{formatCurrency(remainingSaleDebt)}</span>
                 </div>
                 <p className="text-xs opacity-70">
                   O valor restante será registrado como débito do cliente e poderá ser cobrado posteriormente.
@@ -3125,7 +3143,7 @@ export default function Agenda() {
           <AlertDialogFooter>
             <AlertDialogCancel>Voltar</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-yellow-600 hover:bg-yellow-700 text-white font-bold"
+              className="font-bold"
               onClick={() => {
                 if (isEditingSale && activeAppointment?.id) {
                   updateAssociatedSaleMutation.mutate({
