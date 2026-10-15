@@ -1108,12 +1108,12 @@ export default function Agenda() {
         </div>
 
         {/* View Tabs */}
-        <div className="grid grid-cols-2 gap-1 rounded-2xl border border-border/60 bg-card/90 p-1.5 shadow-soft backdrop-blur-xl md:sticky md:top-0 md:z-20">
+        <div className="grid w-full grid-cols-2 gap-1 rounded-2xl border border-border/60 bg-muted/35 p-1.5 md:w-fit md:self-start">
           <button
             type="button"
             onClick={() => setAgendaView('timeline')}
             aria-pressed={agendaView === 'timeline'}
-            className={`flex min-h-12 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold transition-all ${
+            className={`flex min-h-12 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold transition-all md:min-w-44 ${
               agendaView === 'timeline'
                 ? 'bg-primary text-primary-foreground shadow-soft'
                 : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground'
@@ -1126,7 +1126,7 @@ export default function Agenda() {
             type="button"
             onClick={() => setAgendaView('waitlist')}
             aria-pressed={agendaView === 'waitlist'}
-            className={`flex min-h-12 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold transition-all ${
+            className={`flex min-h-12 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold transition-all md:min-w-44 ${
               agendaView === 'waitlist'
                 ? 'bg-primary text-primary-foreground shadow-soft'
                 : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground'
